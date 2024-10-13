@@ -1,6 +1,6 @@
 from abc import ABC, abstractmethod
 
-from hier_neat.agent import Agent
+from hive_mind.agent import Agent
 from .environment import Environment
 
 

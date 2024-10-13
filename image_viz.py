@@ -7,9 +7,9 @@ import numpy as np
 import cv2
 import neat
 
-from hier_neat.exploring.environment import Environment
-from hier_neat.image_agent import ImageAgent
-from hier_neat.exploring.opencv_visualizer import OpenCVVisualizer
+from hive_mind.exploring.environment import Environment
+from hive_mind.image_agent import ImageAgent
+from hive_mind.exploring.opencv_visualizer import OpenCVVisualizer
 
 
 class SimpleEnvironment(Environment):

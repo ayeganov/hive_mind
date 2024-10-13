@@ -3,7 +3,7 @@ import numpy as np
 
 from .environment import Environment
 from .visualizer import Visualizer
-from hier_neat.agent import Agent
+from hive_mind.agent import Agent
 
 
 class OpenCVVisualizer(Visualizer):
