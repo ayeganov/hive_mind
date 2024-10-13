@@ -9,8 +9,11 @@ readme = "README.md"
 python = "^3.11"
 torch = "^2.4.1"
 neat-python = {git = "https://github.com/CodeReclaimers/neat-python.git"}
-
+opencv-python = "^4.10.0.84"
 
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
+
+[tool.poetry.scripts]
+image_viz = "image_viz:main"
