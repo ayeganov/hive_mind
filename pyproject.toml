@@ -11,6 +11,7 @@ torch = "^2.4.1"
 neat-python = {git = "https://github.com/CodeReclaimers/neat-python.git"}
 opencv-python = "^4.10.0.84"
 
+matplotlib = "^3.9.2"
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"

@@ -22,3 +22,10 @@ class Environment(ABC):
 
         :param new_data: The new environment data.
         """
+
+    @property
+    @abstractmethod
+    def boundaries(self) -> tuple:
+        """
+        Return the boundaries of this environment
+        """

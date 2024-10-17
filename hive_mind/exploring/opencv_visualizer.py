@@ -18,8 +18,8 @@ class OpenCVVisualizer(Visualizer):
 
         :param window_name: Name of the OpenCV window.
         """
-        self.environment = None  # Instance of Environment
-        self.agents: dict[str, Agent] = {}  # Maps agent IDs to Agent instances
+        self.environment = None
+        self.agents: dict[str, Agent] = {}
         self.window_name = window_name
         self.is_rendering = False
 
@@ -56,7 +56,7 @@ class OpenCVVisualizer(Visualizer):
         """
         return list(self.agents.values())
 
-    def render(self) -> None:
+    def render(self, goal: tuple[int, int]) -> None:
         """
         Render the current state of the environment and agents using OpenCV.
         """
@@ -64,45 +64,59 @@ class OpenCVVisualizer(Visualizer):
             print("No environment set for visualization.")
             return
 
-        # Retrieve environment data
         env_data = self.environment.get_data()
 
         if not isinstance(env_data, np.ndarray):
             print("Environment data is not a valid image array.")
             return
 
-        # Create a copy to draw on
-        display_image = env_data.copy()
+        display_image = cv2.cvtColor(env_data, cv2.COLOR_GRAY2BGR)
+        cv2.circle(display_image, goal, radius=4, color=(0, 0, 255), thickness=-1)
 
-        # Overlay each agent
         for agent in self.agents.values():
             loc = agent.location
             x, y = int(loc.get('x', 0)), int(loc.get('y', 0))
+            body_direction = np.array(agent.body_direction)
+            gaze_direction = np.array(agent.gaze_direction)
+            view_radius = agent._view_radius
+            focus = agent.focus
 
-            # Check if the agent is within the image boundaries
             height, width = display_image.shape[:2]
-            if 0 <= x < width and 0 <= y < height:
-                # Draw a circle for the agent
-                cv2.circle(display_image, (x, y), radius=5, color=(0, 0, 255), thickness=-1)
+            is_within_bounds = 0 <= x < width and 0 <= y < height
 
-                # Put the agent's ID near the agent
-                cv2.putText(
-                    display_image,
-                    agent.id,
-                    (x + 10, y - 10),
-                    cv2.FONT_HERSHEY_SIMPLEX,
-                    0.5,
-                    (255, 0, 0),
-                    1,
-                    cv2.LINE_AA
-                )
-            else:
-                # Optionally, handle agents outside the boundaries
-                print(f"Agent {agent.id} is outside the image boundaries.")
+            if is_within_bounds:
+                cv2.circle(display_image, (x, y), radius=3, color=(0, 0, 255), thickness=-1)
 
-        # Display the image
+                arrow_length = 20
+                body_end_x = int(x + arrow_length * body_direction[0])
+                body_end_y = int(y + arrow_length * body_direction[1])
+                cv2.arrowedLine(display_image, (x, y), (body_end_x, body_end_y), color=(0, 255, 0), thickness=2, tipLength=0.3)
+
+                final_direction = body_direction + gaze_direction
+                magnitude = np.linalg.norm(final_direction)
+                if magnitude != 0:
+                    final_direction /= magnitude
+
+                area = view_radius * view_radius
+                view_width = int(np.sqrt(2 * area * focus))
+                view_width = max(view_width, 2)
+
+                view_height = int(np.ceil(area / view_width))
+                view_height = max(view_height, 2)
+
+                rotation_angle = np.degrees(np.arctan2(final_direction[1], final_direction[0]))
+
+                rect_points = cv2.boxPoints((
+                    (x, y),
+                    (view_width, view_height),
+                    -rotation_angle
+                ))
+                rect_points = np.int32(rect_points)
+
+                cv2.drawContours(display_image, [rect_points], 0, (255, 0, 0), 2)
+
         cv2.imshow(self.window_name, display_image)
-        cv2.waitKey(1)  # Required to update the OpenCV window
+        cv2.waitKey(1)
 
     def close(self) -> None:
         """

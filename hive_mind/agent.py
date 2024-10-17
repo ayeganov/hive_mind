@@ -1,5 +1,5 @@
 from abc import ABC, abstractmethod
-from typing import Any
+from typing import Any, Iterable
 
 from torch import Tensor
 
@@ -84,4 +84,25 @@ class Agent(ABC):
         Set the agent's current location.
 
         :param new_location: A dictionary representing the new location.
+        """
+
+    @property
+    @abstractmethod
+    def body_direction(self) -> Iterable[float]:
+        """
+        Get the agent's current body direction
+        """
+
+    @property
+    @abstractmethod
+    def gaze_direction(self) -> Iterable[float]:
+        """
+        Get the agents gaze direction
+        """
+
+    @property
+    @abstractmethod
+    def focus(self) -> float:
+        """
+        Get the agents current attention focus
         """
