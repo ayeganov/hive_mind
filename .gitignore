@@ -1,1 +1,6 @@
 *.pyc
+
+*.env
+*.envrc
+__pycache__
+*.pyc

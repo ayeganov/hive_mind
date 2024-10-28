@@ -28,7 +28,7 @@ class ImageAgent(Agent):
         self._internal_state = {}
         self._rotation = 0.0
         self._body_direction = np.array([np.random.random(), np.random.random()]) * np.pi * 2
-        self._gaze_direction = np.array([np.random.random(), np.random.random()]) * np.pi
+        self._gaze_direction = 0 #np.array([np.random.random(), np.random.random()]) * np.pi
         self._focus = 0.5
 
         self._id = agent_id if agent_id is not None else str(uuid.uuid4())
@@ -110,8 +110,8 @@ class ImageAgent(Agent):
 
         left_speed = output_tensor[0].item()
         right_speed = output_tensor[1].item()
-        self._gaze_direction = np.array([np.cos(output_tensor[2].item()), np.sin(output_tensor[2].item())])
-        self._focus = output_tensor[3].item()
+#        self._gaze_direction = np.array([np.cos(output_tensor[2].item()), np.sin(output_tensor[2].item())])
+#        self._focus = output_tensor[3].item()
 
         self._derive_direction(left_speed, right_speed)
 
