@@ -4,6 +4,7 @@ import dataclasses
 from typing import Any
 import random
 
+from scipy.spatial import Voronoi
 import numpy as np
 
 
@@ -71,38 +72,72 @@ class HillEnvironment(Environment):
         return (self.width, self.height)
 
     def generate_surface(self) -> None:
-        """Generates a new surface based on current complexity"""
+        """Generates a new surface with guaranteed separated peaks"""
         base_surface: np.ndarray = np.zeros((self.width, self.height))
         self.peaks.clear()
 
-        # Generate peaks
-        for _ in range(self.complexity):
-            # Random peak parameters
-            peak_x: float = np.random.uniform() * self.width
-            peak_y: float = np.random.uniform() * self.height
-            height: float = np.random.uniform(0.5, 1.0)
-            steepness: float = np.random.uniform(3, 7)
-#            method: str = np.random.choice(['sigmoid', 'quadratic', 'inverse_quadratic'])
-            method: str = "sigmoid"
+        num_points = self.complexity
+        points = np.random.rand(num_points, 2)
+        points = points * [self.width, self.height]
 
-            self.peaks.append(Peak(peak_x, peak_y, height, steepness, method))
+        # Generate heights for each point
+        heights = np.random.uniform(0.4, 1.0, size=len(points))
 
-            # Generate peak surface
-            peak_surface: np.ndarray = self._create_hill_image(
-                peak_x=peak_x,
-                peak_y=peak_y,
-                method=method,
-                steepness=steepness
-            )
+        # Create coordinate matrices
+        x = np.arange(self.width)
+        y = np.arange(self.height)
+        X, Y = np.meshgrid(x, y)
 
-            # Combine with existing surface
-            base_surface = np.maximum(base_surface, peak_surface * height)
+        # Falloff parameter for smoothness
+        falloff = min(self.width, self.height) / 4
+
+        # For each point/peak
+        for i, (px, py) in enumerate(points):
+            # Calculate distance to this point for all positions
+            dist = np.sqrt((X - px)**2 + (Y - py)**2)
+
+            # Use smooth falloff function
+            height_contribution = heights[i] * np.exp(-(dist**2) / (2 * falloff**2))
+
+            # Add to base surface
+            base_surface = np.maximum(height_contribution, base_surface)
+
+            # Store peak information
+            self.peaks.append(Peak(px, py, heights[i], falloff, "gaussian"))
 
         # Normalize final surface
-        if base_surface.max() > 0:  # Avoid division by zero
+        if base_surface.max() > 0:
             base_surface = (base_surface - base_surface.min()) / (base_surface.max() - base_surface.min())
 
         self._surface = (base_surface * 255).astype(np.uint8)
+        self.peaks = self.verify_peaks()
+
+    def verify_peaks(self) -> list[Peak]:
+        """Verify that each peak is still a local maximum"""
+        verified_peaks = []
+        window_size = 8
+        if self._surface is None:
+            return verified_peaks
+
+        for peak in self.peaks:
+            x_idx = int(peak.x)
+            y_idx = int(peak.y)
+ 
+            # Get local region around peak
+            x_start = max(0, x_idx - window_size//2)
+            x_end = min(self.width, x_idx + window_size//2 + 1)
+            y_start = max(0, y_idx - window_size//2)
+            y_end = min(self.height, y_idx + window_size//2 + 1)
+
+            local_region = self._surface[y_start:y_end, x_start:x_end]
+
+            # Check if peak is local maximum
+            peak_height = self._surface[y_idx, x_idx]
+            local_max = np.max(local_region)
+            if peak_height == local_max or local_max == 255:
+                verified_peaks.append(peak)
+
+        return verified_peaks
 
     def _create_hill_image(self,
                            peak_x: float,
@@ -114,7 +149,7 @@ class HillEnvironment(Environment):
         x: np.ndarray = np.linspace(0, self.width, self.width)
         y: np.ndarray = np.linspace(0, self.height, self.height)
         # Important: meshgrid needs to match the expected output shape
-        x, y = np.meshgrid(x, y, indexing='ij')
+        x, y = np.meshgrid(x, y)
 
         # Calculate distances from each point to the peak
         distances: np.ndarray = np.sqrt((x - peak_x)**2 + (y - peak_y)**2)

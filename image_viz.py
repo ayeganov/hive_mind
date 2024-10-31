@@ -10,6 +10,7 @@ import numpy as np
 import cv2
 import matplotlib.pyplot as plt
 import neat
+import pyvista as pv
 from numpy.typing import NDArray
 
 from hive_mind.agent import Agent
@@ -358,37 +359,53 @@ def create_hill_image(width, height, peak_x=None, peak_y=None, method='sigmoid',
     return hill_image
 
 
-def plot_3d_hill(hill_image: np.ndarray, title: str, peaks: list[tuple[int, int]],) -> None:
-    fig = plt.figure(figsize=(10, 8))
-    ax = fig.add_subplot(111, projection='3d')
-
+def plot_3d_hill(hill_image: np.ndarray, title: str, peaks: list[tuple[int, int]]) -> None:
     x = np.arange(0, hill_image.shape[1], 1)
     y = np.arange(0, hill_image.shape[0], 1)
     x, y = np.meshgrid(x, y)
 
-    surf = ax.plot_surface(x, y, hill_image, cmap='viridis', edgecolor='none')
+    grid = pv.StructuredGrid(x, y, hill_image)
+    grid["heights"] = hill_image.flatten()
 
+    plotter = pv.Plotter()
+
+    plotter.add_mesh(grid, scalars="heights", cmap="viridis",)
+
+    peak_points = []
     for peak_x, peak_y in peaks:
-        # Get the height at the peak location
-        peak_z = hill_image[peak_y, peak_x]  # Note: y,x order for array indexing
-        marker_z = peak_z + 0.01 * np.max(hill_image)
-        ax.scatter([peak_x], [peak_y], [marker_z],
-                   color='red',
-                   marker='o',
-                   zorder=1000,
-                   label='Peak',)
 
-    ax.set_xlabel('X')
-    ax.set_ylabel('Y')
-    ax.set_zlabel('Height')
-    ax.set_title(title)
-    fig.colorbar(surf, ax=ax, shrink=0.5, aspect=5)
-    plt.show()
+        peak_x_int = np.clip(peak_x, 0, hill_image.shape[1] - 1)
+        peak_y_int = np.clip(peak_y, 0, hill_image.shape[0] - 1)
+
+        peak_z = hill_image[peak_y_int, peak_x_int]
+        marker_z = peak_z + 0.01 * np.max(hill_image)
+
+        peak_points.append([peak_x, peak_y, marker_z])
+
+    if peak_points:
+        points = pv.PolyData(np.array(peak_points))
+        plotter.add_mesh(points, color="red", point_size=20)
+
+    plotter.show_axes()
+    plotter.add_axes(
+        xlabel='X',
+        ylabel='Y',
+        zlabel='Z',
+        line_width=2,
+        labels_off=False,
+        color='black',
+    )
+
+    plotter.camera_position = 'iso'
+
+    plotter.add_title(title)
+
+    plotter.show()
 
 
 def main():
 
-    width, height = 200, 200
+    width, height = 600, 600
 #    config_path = os.path.abspath("config")  # Replace with your NEAT config path
 #    neat_config = neat.Config(
 #        DefaultGenome,
@@ -404,7 +421,7 @@ def main():
 #    return
 
     hill_env = HillEnvironment(width, height)
-    hill_env.complexity = 1
+    hill_env.complexity = 4
 
     while True:
         peaks = hill_env.get_peak_positions()
