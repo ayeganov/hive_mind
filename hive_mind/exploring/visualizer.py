@@ -46,3 +46,9 @@ class Visualizer(ABC):
 
         :return: A list of Agent instances.
         """
+
+    @abstractmethod
+    def clear(self) -> None:
+        """
+        Fully clear the visualizer state
+        """

@@ -4,7 +4,19 @@ from typing import Any, Iterable
 from torch import Tensor
 
 
-class Agent(ABC):
+class Entity(ABC):
+    """
+    Something that can exist in space and can be identified
+    """
+    @property
+    @abstractmethod
+    def id(self) -> str:
+        """
+        Unique id for this particular entity
+        """
+
+
+class Agent(Entity, ABC):
     """
     Abstract base class defining the simplified interface for an AI agent.
     """

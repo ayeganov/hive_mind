@@ -1,3 +1,4 @@
+import copy
 import time
 import uuid
 from collections import defaultdict
@@ -15,6 +16,7 @@ from numpy.typing import NDArray
 
 from hive_mind.agent import Agent
 from hive_mind.exploring.environment import Environment, HillEnvironment
+from hive_mind.exploring.mcc import ResourceTracker
 from hive_mind.exploring.novelty import DomainAdapter, EvaluationResult, NoveltySearch
 from hive_mind.image_agent import ImageAgent
 from hive_mind.exploring.opencv_visualizer import OpenCVVisualizer
@@ -67,55 +69,103 @@ class SimpleEnvironment(Environment):
         return self._image.shape
 
 
-class HillClimbingAdapter(DomainAdapter[Agent, tuple[OpenCVVisualizer, tuple[int, int]]]):
+class HillClimbingAdapter(DomainAdapter[Agent, OpenCVVisualizer]):
     """Adapter for hill climbing domain"""
 
-    def __init__(self, area: tuple[int, int], epoch_sec: int) -> None:
+    def __init__(self,
+                 area: tuple[int, int],
+                 epoch_sec: int,
+                 num_landscapes: int,) -> None:
         self._area = area
         self._epoch_sec = epoch_sec
-        self._environment = HillEnvironment(*area)
+        self._num_landscapes = num_landscapes
+        self._environments = [HillEnvironment(*area) for _ in range(num_landscapes)]
+        self._seed_agents: set[DefaultGenome] = set()
+        self._seed_landscapes: set[Environment] = set()
+        self._resource_trackers = [ResourceTracker(5) for _ in range(num_landscapes)]
 
-    def setup_evaluation(self) -> tuple[OpenCVVisualizer, tuple[int, int]]:
+    def setup_evaluation(self) -> OpenCVVisualizer:
         """Setup visualization and environment"""
         visualizer = OpenCVVisualizer(window_name="OpenCV Visualizer")
-        self._environment.generate_surface()
-        visualizer.set_environment(self._environment)
+        return visualizer
 
-        peak_pos = self._environment.get_peak_positions()[0]
-        return visualizer, (int(peak_pos[0]), int(peak_pos[1]))
+    def _is_at_peak(self, goal: tuple[int, int], agent: Agent) -> tuple[bool, float]:
+        x_y = np.array((agent.location['x'], agent.location['y']))
+        dist = np.sum((x_y - goal)**2)
+        return (bool(dist <= 20), float(dist))
+
+    def is_search_completed(self) -> bool:
+        num_seed_agents = len(self._seed_agents)
+        num_seed_landscapes = len(self._seed_landscapes)
+        print(f"Num agents: {num_seed_agents}, num solved landscapes: {num_seed_landscapes}")
+        return num_seed_agents >= 20 and num_seed_landscapes == len(self._environments)
 
     def evaluate_agents(self,
                         genomes: list[tuple[int, DefaultGenome]],
                         config: neat.Config,
-                        domain_data: tuple[OpenCVVisualizer, tuple[int, int]]) -> list[EvaluationResult[Agent]]:
+                        domain_data: OpenCVVisualizer) -> list[EvaluationResult[Agent]]:
         """Run agent evaluation and return behavior characterization"""
-        visualizer, goal = domain_data
+        visualizer = domain_data
 
-        agents = create_agents(goal, genomes, config, self._environment)
-        for agent in agents:
-            visualizer.add_agent(agent)
+        agents = create_agents(genomes, config, self._environments[0])
+        for env, tracker in zip(self._environments, self._resource_trackers):
 
-        start = time.time()
-        delta = 0
-        while delta < self._epoch_sec:
+            if tracker.is_at_limit():
+                print(f"Skipping environment {env.id}, it has met its solvability quota")
+                continue
+
+            visualizer.clear()
+
+            visualizer.set_environment(env)
+            goal = env.get_peak_positions()[0]
+
+            set_agent_locations(agents, goal, env)
+
             for agent in agents:
-                agent.observe(self._environment.get_data())
-                agent.process()
-            visualizer.render(goal)
-            delta = time.time() - start
+                visualizer.add_agent(agent)
+
+            start = time.time()
+            delta = 0
+            round_is_over = False
+            while delta < self._epoch_sec and not round_is_over:
+                closest_agent, closest_dist = None, float("inf")
+                for agent, genome in agents.items():
+                    agent.observe(env.get_data())
+                    agent.process()
+
+                    has_reached_peak, dist = self._is_at_peak(goal, agent)
+                    if dist < closest_dist:
+                        closest_agent = agent
+                        closest_dist = dist
+                    if has_reached_peak and genome not in self._seed_agents:
+                        self._seed_agents.add(copy.deepcopy(genome))
+                        self._seed_landscapes.add(env)
+
+                        print(f"Agent {agent.id} has been added to seeds")
+                        print(f"Landscape added to seeds")
+
+                        tracker.record_usage(agent.id)
+                        if tracker.is_at_limit():
+                            print(f"The landscape has been solved 5 times, moving on to the next one")
+                            round_is_over = True
+                            break
+
+                visualizer.render(goal, closest_agent)
+                delta = time.time() - start
 
         results = []
         for agent in agents:
             position = np.array([agent.location['x'], agent.location['y']], dtype=np.float32)
             direction = np.array(agent.body_direction, dtype=np.float32)
             behavior = np.concatenate([position, direction])
-            results.append(EvaluationResult(agent=agent, behavior=behavior, additional_data={'goal': goal}))
+            results.append(EvaluationResult(agent=agent, behavior=behavior, additional_data={}))
 
         return results
 
-    def cleanup_evaluation(self, domain_data: tuple[OpenCVVisualizer, tuple[int, int]]) -> None:
+    def cleanup_evaluation(self,
+                           domain_data: OpenCVVisualizer,) -> None:
         """Cleanup visualization"""
-        visualizer, _ = domain_data
+        visualizer = domain_data
         visualizer.close()
 
 
@@ -123,7 +173,7 @@ class NoveltyHillClimber:
     """Main class for hill climbing with novelty search"""
 
     def __init__(self, area: tuple[int, int], epoch_sec: int, config: neat.Config) -> None:
-        self._adapter = HillClimbingAdapter(area, epoch_sec)
+        self._adapter = HillClimbingAdapter(area, epoch_sec, 10)
         self._novelty_search = NoveltySearch(
             k_nearest=10,
             archive_prob=0.02,
@@ -136,8 +186,8 @@ class NoveltyHillClimber:
 
     def start_sim(self) -> DefaultGenome | None:
         """Start the simulation"""
-        best_genome = self._population.run(self._evaluate, 50)
-        return best_genome
+        while not self._adapter.is_search_completed():
+            self._population.run(self._evaluate, 1)
 
     def _evaluate(self, genomes: list[tuple[int, DefaultGenome]], config: neat.Config) -> None:
         """Evaluation function that bridges domain adapter and novelty search"""
@@ -152,14 +202,13 @@ class NoveltyHillClimber:
             self._adapter.cleanup_evaluation(domain_data)
 
 
-def create_agents(goal: tuple[int, int],
-                  genomes: list[tuple[int, DefaultGenome]],
+def create_agents(genomes: list[tuple[int, DefaultGenome]],
                   neat_config: neat.Config,
-                  env: Environment,) -> dict[ImageAgent, DefaultGenome]:
+                  env: Environment,) -> dict[Agent, DefaultGenome]: 
     """
-    Create a list of dummy ImageAgents with random locations.
+    Create a list of dummy ImageAgents with location 0, 0
 
-    :param num_agents: Number of agents to create.
+    :param genomes: 
     :param neat_config: NEAT configuration.
     :return: A list of ImageAgent instances.
     """
@@ -167,13 +216,19 @@ def create_agents(goal: tuple[int, int],
     for _, genome in genomes:
         agent_id = str(uuid.uuid4())
         agent = ImageAgent(genome, neat_config, agent_id=agent_id, env=env)
+        agents[agent] = genome
 
+    return agents
+
+
+def set_agent_locations(agents: dict[Agent, DefaultGenome],
+                        goal: tuple[int, int],
+                        env: Environment,) -> None:
+    for agent in agents:
         x, y = env.boundaries
         agent_x = x - goal[0]
         agent_y = y - goal[1]
         agent.location = {'x': agent_x, 'y': agent_y}
-        agents[agent] = genome
-    return agents
 
 
 class FitnessCalculator:
@@ -291,7 +346,7 @@ class ImageCrawlersSim:
         self._environment.update_data(hill_image)
 
         try:
-            agents = create_agents(self._goal, genomes, config, self._environment)
+            agents = create_agents(genomes, config, self._environment)
 
             for agent, genome in agents.items():
                 visualizer.add_agent(agent)
@@ -312,51 +367,6 @@ class ImageCrawlersSim:
         finally:
             visualizer.close()
 
-
-def create_hill_image(width, height, peak_x=None, peak_y=None, method='sigmoid', steepness=5):
-    """
-    Create a 2D image of a hill that spans the whole image.
-    
-    :param width: Width of the image
-    :param height: Height of the image
-    :param peak_x: X-coordinate of the peak (random if None)
-    :param peak_y: Y-coordinate of the peak (random if None)
-    :param method: 'sigmoid', 'quadratic', or 'inverse_quadratic'
-    :param steepness: Controls the steepness of the hill
-    :return: 2D numpy array representing the hill image
-    """
-    if peak_x is None:
-        peak_x = np.random.uniform() * width
-    if peak_y is None:
-        peak_y = np.random.uniform() * height
-    
-    x = np.linspace(0, width, width)
-    y = np.linspace(0, height, height)
-    x, y = np.meshgrid(x, y)
-    
-    # Calculate distances from each point to the peak
-    distances = np.sqrt((x - peak_x)**2 + (y - peak_y)**2)
-    
-    # Normalize distances to [0, 1] range
-    max_distance = np.sqrt(width**2 + height**2)
-    normalized_distances = distances / max_distance
-    
-    if method == 'sigmoid':
-        hill = 1 / (1 + np.exp(steepness * (normalized_distances - 0.5)))
-    elif method == 'quadratic':
-        hill = 1 - (normalized_distances ** 2)
-        hill = np.maximum(hill, 0)  # Clip negative values to 0
-    elif method == 'inverse_quadratic':
-        hill = 1 / (1 + steepness * normalized_distances ** 2)
-    else:
-        raise ValueError("Invalid method. Choose 'sigmoid', 'quadratic', or 'inverse_quadratic'.")
-    
-    # Normalize to [0, 1] range
-    hill = (hill - hill.min()) / (hill.max() - hill.min())
-
-    hill_image = (hill * 255).astype(np.uint8)
-    
-    return hill_image
 
 
 def plot_3d_hill(hill_image: np.ndarray, title: str, peaks: list[tuple[int, int]]) -> None:
@@ -405,20 +415,20 @@ def plot_3d_hill(hill_image: np.ndarray, title: str, peaks: list[tuple[int, int]
 
 def main():
 
-    width, height = 600, 600
-#    config_path = os.path.abspath("config")  # Replace with your NEAT config path
-#    neat_config = neat.Config(
-#        DefaultGenome,
-#        neat.DefaultReproduction,
-#        neat.DefaultSpeciesSet,
-#        neat.DefaultStagnation,
-#        config_path
-#    )
-#    nov_hill_climber = NoveltyHillClimber((width, height), 8, neat_config)
-#    winner = nov_hill_climber.start_sim()
-#
-#    print(f"{winner=}")
-#    return
+    width, height = 200, 200
+    config_path = os.path.abspath("config")  # Replace with your NEAT config path
+    neat_config = neat.Config(
+        DefaultGenome,
+        neat.DefaultReproduction,
+        neat.DefaultSpeciesSet,
+        neat.DefaultStagnation,
+        config_path
+    )
+    nov_hill_climber = NoveltyHillClimber((width, height), 8, neat_config)
+    winner = nov_hill_climber.start_sim()
+
+    print(f"{winner=}")
+    return
 
     hill_env = HillEnvironment(width, height)
     hill_env.complexity = 4

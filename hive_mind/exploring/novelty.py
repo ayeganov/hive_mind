@@ -1,12 +1,9 @@
 from abc import ABC, abstractmethod
 from dataclasses import dataclass
-from multiprocessing import pool, Pool
-from time import time
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 import random
-import time
 
-from neat import Config, DefaultGenome
+from neat import DefaultGenome
 from numpy.typing import NDArray
 import neat
 import numpy as np
@@ -28,18 +25,18 @@ class NoveltySearch:
     """Generic novelty search implementation"""
 
     def __init__(self,
-                 k_nearest: int = 10, 
+                 k_nearest: int = 10,
                  archive_prob: float = 0.02,
-                 min_novelty_score: float = 0.01) -> None:
+                 min_novelty_score: float = 0.01,) -> None:
         self.k_nearest = k_nearest
         self.archive_prob = archive_prob
         self.min_novelty_score = min_novelty_score
         self.archive: list[NDArray[np.float32]] = []
         self.generation: int = 0
 
-    def compute_novelty_score(self, 
-                            behavior: NDArray[np.float32], 
-                            behaviors: list[NDArray[np.float32]]) -> float:
+    def compute_novelty_score(self,
+                              behavior: NDArray[np.float32],
+                              behaviors: list[NDArray[np.float32]],) -> float:
         """Compute novelty score for a behavior"""
         if len(behaviors) < 2:
             return float('inf')
@@ -49,9 +46,9 @@ class NoveltySearch:
         k = min(self.k_nearest, len(distances)-1)
         return float(np.mean(distances[1:k+1]))
 
-    def assign_novelty_scores(self, 
-                            genomes: list[tuple[int, DefaultGenome]], 
-                            behaviors: list[NDArray[np.float32]]) -> None:
+    def assign_novelty_scores(self,
+                              genomes: list[tuple[int, DefaultGenome]],
+                              behaviors: list[NDArray[np.float32]],) -> None:
         """Assign novelty scores to genomes and update archive"""
         all_behaviors = behaviors + self.archive
 
@@ -86,3 +83,7 @@ class DomainAdapter[GenAgent, GenContext](ABC):
     @abstractmethod
     def cleanup_evaluation(self, domain_data: GenContext) -> None:
         """Cleanup after evaluation"""
+
+    @abstractmethod
+    def is_search_completed(self) -> bool:
+        """Have the search conditions been met"""

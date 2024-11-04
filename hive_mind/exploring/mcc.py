@@ -17,17 +17,20 @@ class MCCConfig:
 class ResourceTracker:
     """Tracks resource usage for environments"""
     def __init__(self, limit: int):
-        self.limit = limit
-        self.usage: dict[int, int] = {}  # env_id -> times_used
+        self._limit = limit
+        self._usage: dict[str, int] = {}  # ent_id -> times_used
 
-    def can_use(self, env_id: int) -> bool:
-        return self.usage.get(env_id, 0) < self.limit
+    def can_use(self, ent_id: str) -> bool:
+        return self._usage.get(ent_id, 0) < self._limit
 
-    def record_usage(self, env_id: int):
-        self.usage[env_id] = self.usage.get(env_id, 0) + 1
+    def is_at_limit(self) -> bool:
+        return sum(self._usage.values()) >= self._limit
+
+    def record_usage(self, ent_id: str):
+        self._usage[ent_id] = self._usage.get(ent_id, 0) + 1
 
     def clear(self):
-        self.usage.clear()
+        self._usage.clear()
 
 
 class PopulationQueue:
@@ -36,20 +39,20 @@ class PopulationQueue:
         self.capacity = capacity
         self.queue: list[tuple[int, DefaultGenome]] = []  # (id, genome)
         self.next_id = 0
-    
+
     def add(self, genome: DefaultGenome) -> int:
         genome_id = self.next_id
         self.next_id += 1
-        
+
         self.queue.append((genome_id, genome))
         if len(self.queue) > self.capacity:
             self.queue.pop(0)  # Remove oldest
-            
+
         return genome_id
-    
+
     def get_batch(self, size: int) -> list[tuple[int, DefaultGenome]]:
         return self.queue[:size]
-    
+
     def __len__(self):
         return len(self.queue)
 

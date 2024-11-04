@@ -1,7 +1,7 @@
 # neat-python configuration for the LunarLander-v2 environment on OpenAI Gym
 
 [NEAT]
-pop_size              = 45
+pop_size              = 50
 # Note: the fitness threshold will never be reached because
 # we are controlling the termination ourselves based on simulation performance.
 fitness_criterion     = max
@@ -25,7 +25,7 @@ activation_options      = sigmoid sin
 activation_mutate_rate  = 0.0
 aggregation_default     = sum
 aggregation_options     = sum product
-aggregation_mutate_rate = 0.0
+aggregation_mutate_rate = 0.05
 bias_init_mean          = 0.0
 bias_init_stdev         = 1.0
 bias_replace_rate       = 0.02

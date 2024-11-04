@@ -1,16 +1,11 @@
-import cv2
 import numpy as np
 import matplotlib.pyplot as plt
-from matplotlib.patches import Arc, Circle, Arrow, FancyArrowPatch, Rectangle
-from matplotlib.figure import Figure
-import plotly.graph_objects as go
+from matplotlib.patches import Arc, Circle, FancyArrowPatch
 
-from typing import Any, Optional
+from typing import Any
 from collections import defaultdict
-import math
 
 from hive_mind.agent import Agent
-from image_viz import create_hill_image
 
 import io
 from PIL import Image

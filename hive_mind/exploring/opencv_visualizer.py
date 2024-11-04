@@ -48,6 +48,11 @@ class OpenCVVisualizer(Visualizer):
         if agent_id in self.agents:
             del self.agents[agent_id]
 
+    def clear(self):
+        self.environment = None
+        self.agents.clear()
+        self.is_rendering = False
+
     def get_agents(self) -> list[Agent]:
         """
         Retrieve the list of agents currently in the visualization.
@@ -56,7 +61,7 @@ class OpenCVVisualizer(Visualizer):
         """
         return list(self.agents.values())
 
-    def render(self, goal: tuple[int, int]) -> None:
+    def render(self, goal: tuple[int, int], closest_agent: Agent) -> None:
         """
         Render the current state of the environment and agents using OpenCV.
         """
@@ -90,7 +95,10 @@ class OpenCVVisualizer(Visualizer):
                 arrow_length = 20
                 body_end_x = int(x + arrow_length * body_direction[0])
                 body_end_y = int(y + arrow_length * body_direction[1])
-                cv2.arrowedLine(display_image, (x, y), (body_end_x, body_end_y), color=(0, 255, 0), thickness=2, tipLength=0.3)
+                if agent.id == closest_agent.id:
+                    cv2.arrowedLine(display_image, (x, y), (body_end_x, body_end_y), color=(128, 255, 0), thickness=2, tipLength=0.3)
+                else:
+                    cv2.arrowedLine(display_image, (x, y), (body_end_x, body_end_y), color=(0, 255, 0), thickness=2, tipLength=0.3)
 
                 final_direction = body_direction + gaze_direction
                 magnitude = np.linalg.norm(final_direction)
