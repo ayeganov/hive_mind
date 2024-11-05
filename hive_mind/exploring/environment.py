@@ -89,7 +89,7 @@ class HillEnvironment(Environment):
         points = points * [self.width, self.height]
 
         # Generate heights for each point
-        heights = np.random.uniform(0.4, 1.0, size=len(points))
+        heights = np.random.uniform(0.5, 1.0, size=len(points))
 
         # Create coordinate matrices
         x = np.arange(self.width)
@@ -97,7 +97,7 @@ class HillEnvironment(Environment):
         X, Y = np.meshgrid(x, y)
 
         # Falloff parameter for smoothness
-        falloff = min(self.width, self.height) / 4
+        falloff = min(self.width, self.height) / 2
 
         # For each point/peak
         for i, (px, py) in enumerate(points):
@@ -145,7 +145,7 @@ class HillEnvironment(Environment):
             if peak_height == local_max or local_max == 255:
                 verified_peaks.append(peak)
 
-        return verified_peaks
+        return sorted(verified_peaks, key=lambda p: p.height, reverse=True)
 
     def get_height(self, x: float, y: float) -> float:
         """Returns the height at given coordinates"""

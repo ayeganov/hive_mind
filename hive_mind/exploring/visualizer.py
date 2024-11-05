@@ -1,10 +1,14 @@
 from abc import ABC, abstractmethod
+from typing import TypeVar
 
 from hive_mind.agent import Agent
 from .environment import Environment
 
 
-class Visualizer(ABC):
+RenderContext = TypeVar('RenderContext')
+
+
+class Visualizer[RenderContext](ABC):
     """
     Abstract base class defining the interface for a visualizer.
     """
@@ -18,33 +22,9 @@ class Visualizer(ABC):
         """
 
     @abstractmethod
-    def add_agent(self, agent: Agent) -> None:
-        """
-        Add an agent to the visualization.
-
-        :param agent: An instance of Agent.
-        """
-
-    @abstractmethod
-    def remove_agent(self, agent_id: str) -> None:
-        """
-        Remove an agent from the visualization based on its ID.
-
-        :param agent_id: The unique identifier of the agent to remove.
-        """
-
-    @abstractmethod
-    def render(self) -> None:
+    def render(self, ctx: RenderContext) -> None:
         """
         Render the current state of the environment and agents.
-        """
-
-    @abstractmethod
-    def get_agents(self) -> list[Agent]:
-        """
-        Retrieve the list of agents currently in the visualization.
-
-        :return: A list of Agent instances.
         """
 
     @abstractmethod

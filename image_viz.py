@@ -19,7 +19,7 @@ from hive_mind.exploring.environment import Environment, HillEnvironment
 from hive_mind.exploring.mcc import ResourceTracker
 from hive_mind.exploring.novelty import DomainAdapter, EvaluationResult, NoveltySearch
 from hive_mind.image_agent import ImageAgent
-from hive_mind.exploring.opencv_visualizer import OpenCVVisualizer
+from hive_mind.exploring.opencv_visualizer import OpenCVHillClimberVisualizer, RenderAgents
 
 
 class SimpleEnvironment(Environment):
@@ -69,7 +69,7 @@ class SimpleEnvironment(Environment):
         return self._image.shape
 
 
-class HillClimbingAdapter(DomainAdapter[Agent, OpenCVVisualizer]):
+class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
     """Adapter for hill climbing domain"""
 
     def __init__(self,
@@ -85,15 +85,15 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVVisualizer]):
         self._seed_landscapes: set[Environment] = set()
         self._resource_trackers = [ResourceTracker(5) for _ in range(num_landscapes)]
 
-    def setup_evaluation(self) -> OpenCVVisualizer:
+    def setup_evaluation(self) -> OpenCVHillClimberVisualizer:
         """Setup visualization and environment"""
-        visualizer = OpenCVVisualizer(window_name="OpenCV Visualizer")
+        visualizer = OpenCVHillClimberVisualizer(window_name="OpenCV Visualizer")
         return visualizer
 
     def _is_at_peak(self, goal: tuple[int, int], agent: Agent) -> tuple[bool, float]:
         x_y = np.array((agent.location['x'], agent.location['y']))
-        dist = np.sum((x_y - goal)**2)
-        return (bool(dist <= 20), float(dist))
+        dist = float(np.sqrt(np.sum((x_y - goal)**2)))
+        return (bool(dist <= 20), dist)
 
     def is_search_completed(self) -> bool:
         num_seed_agents = len(self._seed_agents)
@@ -104,40 +104,40 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVVisualizer]):
     def evaluate_agents(self,
                         genomes: list[tuple[int, DefaultGenome]],
                         config: neat.Config,
-                        domain_data: OpenCVVisualizer) -> list[EvaluationResult[Agent]]:
+                        domain_data: OpenCVHillClimberVisualizer) -> list[EvaluationResult[Agent]]:
         """Run agent evaluation and return behavior characterization"""
         visualizer = domain_data
 
         agents = create_agents(genomes, config, self._environments[0])
+        render_ctx = RenderAgents(agents=agents.keys())
+
         for env, tracker in zip(self._environments, self._resource_trackers):
+
+            render_ctx.peaks = env.get_peak_positions()
 
             if tracker.is_at_limit():
                 print(f"Skipping environment {env.id}, it has met its solvability quota")
                 continue
-
-            visualizer.clear()
 
             visualizer.set_environment(env)
             goal = env.get_peak_positions()[0]
 
             set_agent_locations(agents, goal, env)
 
-            for agent in agents:
-                visualizer.add_agent(agent)
-
             start = time.time()
             delta = 0
             round_is_over = False
+            print(f"{goal=}")
             while delta < self._epoch_sec and not round_is_over:
-                closest_agent, closest_dist = None, float("inf")
+                render_ctx.dist = float("inf")
                 for agent, genome in agents.items():
                     agent.observe(env.get_data())
                     agent.process()
 
                     has_reached_peak, dist = self._is_at_peak(goal, agent)
-                    if dist < closest_dist:
-                        closest_agent = agent
-                        closest_dist = dist
+                    if dist < render_ctx.dist:
+                        render_ctx.closest_id = agent.id
+                        render_ctx.dist = dist
 
                     if has_reached_peak:
                         if agent.id not in self._seed_agent_ids:
@@ -153,10 +153,8 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVVisualizer]):
                                 print(f"The landscape has been solved 5 times, moving on to the next one")
                                 round_is_over = True
                                 break
-                        else:
-                            print(f"Agent {agent.id} has reached the peak again")
 
-                visualizer.render(goal, closest_agent)
+                visualizer.render(render_ctx)
                 delta = time.time() - start
 
         results = []
@@ -169,7 +167,7 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVVisualizer]):
         return results
 
     def cleanup_evaluation(self,
-                           domain_data: OpenCVVisualizer,) -> None:
+                           domain_data: OpenCVHillClimberVisualizer,) -> None:
         """Cleanup visualization"""
         visualizer = domain_data
         visualizer.close()
@@ -341,7 +339,7 @@ class ImageCrawlersSim:
         return distance_fitness, direction_fitness
 
     def _fitness_eval(self, genomes: list[tuple[int, DefaultGenome]], config: neat.Config) -> None:
-        visualizer = OpenCVVisualizer(window_name="OpenCV Visualizer")
+        visualizer = OpenCVHillClimberVisualizer(window_name="OpenCV Visualizer")
         visualizer.set_environment(self._environment)
 
         width, height = self._area
@@ -437,16 +435,16 @@ def main():
     return
 
 #    hill_env = HillEnvironment(width, height)
-##    hill_env.complexity = 1
+#    hill_env.complexity = 4
 #
 #    while True:
+#        hill_env.generate_surface()
 #        peaks = hill_env.get_peak_positions()
 #        hill_image = hill_env.get_data()
 #
 #        plot_3d_hill(hill_image, f'3D Visualization of Hill Image', peaks)
-#        hill_env.generate_surface()
-
-    return
+#
+#    return
 
     area = 400, 400
 

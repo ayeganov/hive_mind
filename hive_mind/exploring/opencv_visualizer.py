@@ -1,3 +1,5 @@
+from dataclasses import dataclass
+from typing import Iterable
 import cv2
 import numpy as np
 
@@ -6,7 +8,37 @@ from .visualizer import Visualizer
 from hive_mind.agent import Agent
 
 
-class OpenCVVisualizer(Visualizer):
+def draw_text(img,
+              text,
+              position,
+              font=cv2.FONT_HERSHEY_SIMPLEX,
+              font_scale=1,
+              color=(255, 255, 255),
+              thickness=1):
+    """
+    Draw text on an image.
+
+    Args:
+        img (numpy.ndarray): The input image.
+        text (str): The text to be drawn.
+        position (tuple): The top-left starting position of the text (x, y).
+        font (int, optional): The font style. Defaults to cv2.FONT_HERSHEY_SIMPLEX.
+        font_scale (float, optional): The font size. Defaults to 1.
+        color (tuple, optional): The text color in BGR format. Defaults to (255, 255, 255).
+        thickness (int, optional): The thickness of the text lines. Defaults to 2.
+    """
+    cv2.putText(img, text, position, font, font_scale, color, thickness)
+
+
+@dataclass
+class RenderAgents:
+    agents: Iterable[Agent]
+    dist: float = float("inf")
+    closest_id: str | None = None
+    peaks: list[tuple[int, int]] | None = None
+
+
+class OpenCVHillClimberVisualizer(Visualizer[RenderAgents]):
     """
     Concrete implementation of the Visualizer interface using OpenCV.
     Visualizes an environment image and overlays multiple agents on it.
@@ -18,9 +50,8 @@ class OpenCVVisualizer(Visualizer):
 
         :param window_name: Name of the OpenCV window.
         """
-        self.environment = None
-        self.agents: dict[str, Agent] = {}
-        self.window_name = window_name
+        self._environment = None
+        self._window_name = window_name
         self.is_rendering = False
 
     def set_environment(self, environment: Environment) -> None:
@@ -29,56 +60,37 @@ class OpenCVVisualizer(Visualizer):
 
         :param environment: An instance of Environment.
         """
-        self.environment = environment
-
-    def add_agent(self, agent: Agent) -> None:
-        """
-        Add an agent to the visualization.
-
-        :param agent: An instance of Agent.
-        """
-        self.agents[agent.id] = agent
-
-    def remove_agent(self, agent_id: str) -> None:
-        """
-        Remove an agent from the visualization based on its ID.
-
-        :param agent_id: The unique identifier of the agent to remove.
-        """
-        if agent_id in self.agents:
-            del self.agents[agent_id]
+        self._environment = environment
 
     def clear(self):
         self.environment = None
-        self.agents.clear()
         self.is_rendering = False
 
-    def get_agents(self) -> list[Agent]:
-        """
-        Retrieve the list of agents currently in the visualization.
-
-        :return: A list of Agent instances.
-        """
-        return list(self.agents.values())
-
-    def render(self, goal: tuple[int, int], closest_agent: Agent) -> None:
+    def render(self, ctx: RenderAgents) -> None:
         """
         Render the current state of the environment and agents using OpenCV.
         """
-        if self.environment is None:
+        if self._environment is None:
             print("No environment set for visualization.")
             return
 
-        env_data = self.environment.get_data()
+        env_data = self._environment.get_data()
 
         if not isinstance(env_data, np.ndarray):
             print("Environment data is not a valid image array.")
             return
 
+        if ctx.peaks is None:
+            print("No peaks passed in the render context")
+            return
+
+        goal = ctx.peaks[0]
+
         display_image = cv2.cvtColor(env_data, cv2.COLOR_GRAY2BGR)
         cv2.circle(display_image, goal, radius=4, color=(0, 0, 255), thickness=-1)
+        cv2.circle(display_image, goal, radius=20, color=(0, 0, 255), thickness=1)
 
-        for agent in self.agents.values():
+        for agent in ctx.agents:
             loc = agent.location
             x, y = int(loc.get('x', 0)), int(loc.get('y', 0))
             body_direction = np.array(agent.body_direction)
@@ -95,8 +107,10 @@ class OpenCVVisualizer(Visualizer):
                 arrow_length = 20
                 body_end_x = int(x + arrow_length * body_direction[0])
                 body_end_y = int(y + arrow_length * body_direction[1])
-                if agent.id == closest_agent.id:
+
+                if ctx.closest_id is not None and agent.id == ctx.closest_id:
                     cv2.arrowedLine(display_image, (x, y), (body_end_x, body_end_y), color=(205, 20, 100), thickness=2, tipLength=0.3)
+                    draw_text(display_image, f"Dist: {ctx.dist:.0f}", (0, 10), font_scale=0.3)
                 else:
                     cv2.arrowedLine(display_image, (x, y), (body_end_x, body_end_y), color=(0, 255, 0), thickness=2, tipLength=0.3)
 
@@ -121,16 +135,17 @@ class OpenCVVisualizer(Visualizer):
                 ))
                 rect_points = np.int32(rect_points)
 
-                cv2.drawContours(display_image, [rect_points], 0, (255, 0, 0), 2)
+                cv2.drawContours(display_image, [rect_points], 0, (255, 0, 0), 1)
 
-        cv2.imshow(self.window_name, display_image)
+        display_image = cv2.resize(display_image, (800, 800))
+        cv2.imshow(self._window_name, display_image)
         cv2.waitKey(1)
 
     def close(self) -> None:
         """
         Close the OpenCV window.
         """
-        cv2.destroyWindow(self.window_name)
+        cv2.destroyWindow(self._window_name)
         self.is_rendering = False
 
     def start_rendering_loop(self, delay: int = 1) -> None:
@@ -141,7 +156,8 @@ class OpenCVVisualizer(Visualizer):
         """
         self.is_rendering = True
         while self.is_rendering:
-            self.render()
+            # TODO: must fix the render call
+            # self.render()
             key = cv2.waitKey(delay)
             if key == ord('q'):  # Press 'q' to quit the rendering loop
                 self.is_rendering = False
