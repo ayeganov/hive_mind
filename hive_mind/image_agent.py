@@ -55,7 +55,7 @@ class ImageAgent(Agent):
         if magnitude != 0:
             final_direction = final_direction / magnitude
 
-        rotation_angle = np.degrees(np.arctan2(final_direction[1], final_direction[0]))
+        rotation_angle = np.degrees(np.arctan2(-final_direction[1], final_direction[0]))
 
         area = r * r
         view_width = int(np.sqrt(2 * area * self._focus))

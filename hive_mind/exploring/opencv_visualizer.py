@@ -96,7 +96,7 @@ class OpenCVVisualizer(Visualizer):
                 body_end_x = int(x + arrow_length * body_direction[0])
                 body_end_y = int(y + arrow_length * body_direction[1])
                 if agent.id == closest_agent.id:
-                    cv2.arrowedLine(display_image, (x, y), (body_end_x, body_end_y), color=(128, 255, 0), thickness=2, tipLength=0.3)
+                    cv2.arrowedLine(display_image, (x, y), (body_end_x, body_end_y), color=(205, 20, 100), thickness=2, tipLength=0.3)
                 else:
                     cv2.arrowedLine(display_image, (x, y), (body_end_x, body_end_y), color=(0, 255, 0), thickness=2, tipLength=0.3)
 
@@ -112,7 +112,7 @@ class OpenCVVisualizer(Visualizer):
                 view_height = int(np.ceil(area / view_width))
                 view_height = max(view_height, 2)
 
-                rotation_angle = np.degrees(np.arctan2(final_direction[1], final_direction[0]))
+                rotation_angle = np.degrees(np.arctan2(-final_direction[1], final_direction[0]))
 
                 rect_points = cv2.boxPoints((
                     (x, y),

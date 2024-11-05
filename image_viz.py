@@ -81,6 +81,7 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVVisualizer]):
         self._num_landscapes = num_landscapes
         self._environments = [HillEnvironment(*area) for _ in range(num_landscapes)]
         self._seed_agents: set[DefaultGenome] = set()
+        self._seed_agent_ids: set[str] = set()
         self._seed_landscapes: set[Environment] = set()
         self._resource_trackers = [ResourceTracker(5) for _ in range(num_landscapes)]
 
@@ -137,18 +138,23 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVVisualizer]):
                     if dist < closest_dist:
                         closest_agent = agent
                         closest_dist = dist
-                    if has_reached_peak and genome not in self._seed_agents:
-                        self._seed_agents.add(copy.deepcopy(genome))
-                        self._seed_landscapes.add(env)
 
-                        print(f"Agent {agent.id} has been added to seeds")
-                        print(f"Landscape added to seeds")
+                    if has_reached_peak:
+                        if agent.id not in self._seed_agent_ids:
+                            self._seed_agents.add(copy.deepcopy(genome))
+                            self._seed_agent_ids.add(agent.id)
+                            self._seed_landscapes.add(env)
 
-                        tracker.record_usage(agent.id)
-                        if tracker.is_at_limit():
-                            print(f"The landscape has been solved 5 times, moving on to the next one")
-                            round_is_over = True
-                            break
+                            print(f"Agent {agent.id} has been added to seeds")
+                            print(f"Landscape added to seeds")
+
+                            tracker.record_usage(agent.id)
+                            if tracker.is_at_limit():
+                                print(f"The landscape has been solved 5 times, moving on to the next one")
+                                round_is_over = True
+                                break
+                        else:
+                            print(f"Agent {agent.id} has reached the peak again")
 
                 visualizer.render(goal, closest_agent)
                 delta = time.time() - start
@@ -430,15 +436,15 @@ def main():
     print(f"{winner=}")
     return
 
-    hill_env = HillEnvironment(width, height)
-    hill_env.complexity = 4
-
-    while True:
-        peaks = hill_env.get_peak_positions()
-        hill_image = hill_env.get_data()
-
-        plot_3d_hill(hill_image, f'3D Visualization of Hill Image', peaks)
-        hill_env.generate_surface()
+#    hill_env = HillEnvironment(width, height)
+##    hill_env.complexity = 1
+#
+#    while True:
+#        peaks = hill_env.get_peak_positions()
+#        hill_image = hill_env.get_data()
+#
+#        plot_3d_hill(hill_image, f'3D Visualization of Hill Image', peaks)
+#        hill_env.generate_surface()
 
     return
 
