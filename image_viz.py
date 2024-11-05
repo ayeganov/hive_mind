@@ -9,7 +9,6 @@ from neat.genome import DefaultGenome
 from neat.population import Population
 import numpy as np
 import cv2
-import matplotlib.pyplot as plt
 import neat
 import pyvista as pv
 from numpy.typing import NDArray
@@ -111,13 +110,10 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
         agents = create_agents(genomes, config, self._environments[0])
         render_ctx = RenderAgents(agents=agents.keys())
 
+        agent_behaviors: dict[Agent, NDArray[np.float32]] = {}
         for env, tracker in zip(self._environments, self._resource_trackers):
 
             render_ctx.peaks = env.get_peak_positions()
-
-            if tracker.is_at_limit():
-                print(f"Skipping environment {env.id}, it has met its solvability quota")
-                continue
 
             visualizer.set_environment(env)
             goal = env.get_peak_positions()[0]
@@ -127,12 +123,14 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
             start = time.time()
             delta = 0
             round_is_over = False
-            print(f"{goal=}")
             while delta < self._epoch_sec and not round_is_over:
                 render_ctx.dist = float("inf")
                 for agent, genome in agents.items():
                     agent.observe(env.get_data())
                     agent.process()
+
+                    if tracker.is_at_limit():
+                        continue
 
                     has_reached_peak, dist = self._is_at_peak(goal, agent)
                     if dist < render_ctx.dist:
@@ -157,11 +155,17 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
                 visualizer.render(render_ctx)
                 delta = time.time() - start
 
+            for agent in agents:
+                position = np.array([agent.location['x'], agent.location['y']], dtype=np.float32) / 255.
+                height = np.array([env.get_height(position[0], position[1])], dtype=np.float32)
+                current_behavior = np.concatenate([position, height])
+                all_behaviors = agent_behaviors.get(agent, np.array([], dtype=np.float32))
+                all_behaviors = np.concatenate([all_behaviors, current_behavior])
+                agent_behaviors[agent] = all_behaviors
+
         results = []
-        for agent in agents:
-            position = np.array([agent.location['x'], agent.location['y']], dtype=np.float32)
-            direction = np.array(agent.body_direction, dtype=np.float32)
-            behavior = np.concatenate([position, direction])
+        for agent, behavior in agent_behaviors.items():
+            assert len(behavior) == 30, f"WTF: {len(behavior)=}"
             results.append(EvaluationResult(agent=agent, behavior=behavior, additional_data={}))
 
         return results
@@ -180,7 +184,7 @@ class NoveltyHillClimber:
         self._adapter = HillClimbingAdapter(area, epoch_sec, 10)
         self._novelty_search = NoveltySearch(
             k_nearest=10,
-            archive_prob=0.02,
+            archive_prob=0.08,
             min_novelty_score=0.01
         )
         self._population = neat.Population(config)
