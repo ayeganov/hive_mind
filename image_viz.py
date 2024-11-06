@@ -78,7 +78,7 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
         self._area = area
         self._epoch_sec = epoch_sec
         self._num_landscapes = num_landscapes
-        self._environments = [HillEnvironment(*area) for _ in range(num_landscapes)]
+        self._environments = [HillEnvironment(*area, complexity=2) for _ in range(num_landscapes)]
         self._seed_agents: set[DefaultGenome] = set()
         self._seed_agent_ids: set[str] = set()
         self._seed_landscapes: set[Environment] = set()
@@ -165,8 +165,8 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
 
         results = []
         for agent, behavior in agent_behaviors.items():
-            assert len(behavior) == 30, f"WTF: {len(behavior)=}"
-            results.append(EvaluationResult(agent=agent, behavior=behavior, additional_data={}))
+            assert len(behavior) == self._num_landscapes * 3, f"Behavior of invalid size: {len(behavior)=}"
+            results.append(EvaluationResult(agent=agent, behavior=behavior))
 
         return results
 

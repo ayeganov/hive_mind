@@ -18,7 +18,7 @@ class EvaluationResult[GenAgent]:
     """Container for evaluation results"""
     agent: GenAgent
     behavior: NDArray[np.float32]
-    additional_data: dict[str, Any]
+    additional_data: dict[str, Any] | None = None
 
 
 class NoveltySearch:

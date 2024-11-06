@@ -50,12 +50,12 @@ class Peak:
 
 
 class HillEnvironment(Environment):
-    def __init__(self, width: int = 100, height: int = 100) -> None:
+    def __init__(self, width: int = 100, height: int = 100, complexity: int = 1) -> None:
         self.width: int = width
         self.height: int = height
-        self.complexity: int = 1  # Number of peaks
+        self._complexity: int = complexity
         # Each peak: (x, y, height, steepness, method)
-        self.peaks: list[Peak] = []
+        self._peaks: list[Peak] = []
         self._surface: np.ndarray | None = None
         self._id = str(uuid.uuid4())
         self.generate_surface()
@@ -82,9 +82,9 @@ class HillEnvironment(Environment):
     def generate_surface(self) -> None:
         """Generates a new surface with guaranteed separated peaks"""
         base_surface: np.ndarray = np.zeros((self.width, self.height))
-        self.peaks.clear()
+        self._peaks.clear()
 
-        num_points = self.complexity
+        num_points = self._complexity
         points = np.random.rand(num_points, 2)
         points = points * [self.width, self.height]
 
@@ -111,14 +111,14 @@ class HillEnvironment(Environment):
             base_surface = np.maximum(height_contribution, base_surface)
 
             # Store peak information
-            self.peaks.append(Peak(px, py, heights[i], falloff, "gaussian"))
+            self._peaks.append(Peak(px, py, heights[i], falloff, "gaussian"))
 
         # Normalize final surface
         if base_surface.max() > 0:
             base_surface = (base_surface - base_surface.min()) / (base_surface.max() - base_surface.min())
 
         self._surface = (base_surface * 255).astype(np.uint8)
-        self.peaks = self.verify_peaks()
+        self._peaks = self.verify_peaks()
 
     def verify_peaks(self) -> list[Peak]:
         """Verify that each peak is still a local maximum"""
@@ -127,7 +127,7 @@ class HillEnvironment(Environment):
         if self._surface is None:
             return verified_peaks
 
-        for peak in self.peaks:
+        for peak in self._peaks:
             x_idx = int(peak.x)
             y_idx = int(peak.y)
  
@@ -163,4 +163,4 @@ class HillEnvironment(Environment):
 
     def get_peak_positions(self) -> list[tuple[int, int]]:
         """Returns list of peak positions"""
-        return [(int(p.x), int(p.y)) for p in self.peaks]
+        return [(int(p.x), int(p.y)) for p in self._peaks]

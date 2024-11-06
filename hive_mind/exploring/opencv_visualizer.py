@@ -94,9 +94,6 @@ class OpenCVHillClimberVisualizer(Visualizer[RenderAgents]):
             loc = agent.location
             x, y = int(loc.get('x', 0)), int(loc.get('y', 0))
             body_direction = np.array(agent.body_direction)
-            gaze_direction = np.array(agent.gaze_direction)
-            view_radius = agent._view_radius
-            focus = agent.focus
 
             height, width = display_image.shape[:2]
             is_within_bounds = 0 <= x < width and 0 <= y < height
@@ -114,32 +111,43 @@ class OpenCVHillClimberVisualizer(Visualizer[RenderAgents]):
                 else:
                     cv2.arrowedLine(display_image, (x, y), (body_end_x, body_end_y), color=(0, 255, 0), thickness=2, tipLength=0.3)
 
-                final_direction = body_direction + gaze_direction
-                magnitude = np.linalg.norm(final_direction)
-                if magnitude != 0:
-                    final_direction /= magnitude
-
-                area = view_radius * view_radius
-                view_width = int(np.sqrt(2 * area * focus))
-                view_width = max(view_width, 2)
-
-                view_height = int(np.ceil(area / view_width))
-                view_height = max(view_height, 2)
-
-                rotation_angle = np.degrees(np.arctan2(-final_direction[1], final_direction[0]))
-
-                rect_points = cv2.boxPoints((
-                    (x, y),
-                    (view_width, view_height),
-                    -rotation_angle
-                ))
-                rect_points = np.int32(rect_points)
-
-                cv2.drawContours(display_image, [rect_points], 0, (255, 0, 0), 1)
+                self._draw_vision_area(agent, display_image)
 
         display_image = cv2.resize(display_image, (800, 800))
         cv2.imshow(self._window_name, display_image)
         cv2.waitKey(1)
+
+    def _draw_vision_area(self, agent: Agent, disp_img: np.ndarray) -> None:
+        body_direction = np.array(agent.body_direction)
+        gaze_direction = np.array(agent.gaze_direction)
+        view_radius = agent._view_radius
+        focus = agent.focus
+
+        final_direction = body_direction + gaze_direction
+        magnitude = np.linalg.norm(final_direction)
+        if magnitude != 0:
+            final_direction /= magnitude
+
+        area = view_radius * view_radius
+        view_width = int(np.sqrt(2 * area * focus))
+        view_width = max(view_width, 2)
+
+        view_height = int(np.ceil(area / view_width))
+        view_height = max(view_height, 2)
+
+        rotation_angle = np.degrees(np.arctan2(-final_direction[1], final_direction[0]))
+
+        loc = agent.location
+        x, y = int(loc.get('x', 0)), int(loc.get('y', 0))
+        rect_points = cv2.boxPoints((
+            (x, y),
+            (view_width, view_height),
+            -rotation_angle
+        ))
+        rect_points = np.int32(rect_points)
+
+        cv2.drawContours(disp_img, [rect_points], 0, (255, 0, 0), 1)
+
 
     def close(self) -> None:
         """
