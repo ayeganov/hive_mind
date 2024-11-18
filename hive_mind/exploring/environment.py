@@ -113,6 +113,7 @@ class HillEnvironment(Environment):
 
             # Add to base surface
             base_surface = np.maximum(height_contribution, base_surface)
+            base_surface += np.random.uniform(-0.03, 0.03, base_surface.shape)
 
             # Store peak information
             self._peaks.append(Peak(px, py, heights[i], falloff, "gaussian"))
@@ -227,6 +228,8 @@ class SlopedEnvironment(Environment):
         # Calculate the height at each point using the slopes.
         heights = self.slope_x * X + self.slope_y * Y + self.intercept
 
+        heights += np.random.uniform(-0.05, 0.05, heights.shape)
+
         # Instead of normalizing the heights to [0, 255], we adjust the scaling to reflect the actual steepness.
         # We will translate the heights to positive values if necessary.
         min_height = heights.min()
@@ -255,7 +258,6 @@ class SlopedEnvironment(Environment):
         y_idx = np.clip(y_idx, 0, self.height - 1)
 
         return float(self._surface[y_idx, x_idx])
-
 
     def mutate(self) -> None:
         """Mutate the environment by possibly increasing complexity and adjusting slopes, driven by chance."""
