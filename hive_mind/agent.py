@@ -15,6 +15,13 @@ class Entity(ABC):
         Unique id for this particular entity
         """
 
+    @property
+    @abstractmethod
+    def type(self) -> str:
+        """
+        Type of this entity - agent, environment, genome etc
+        """
+
 
 class Agent(Entity, ABC):
     """

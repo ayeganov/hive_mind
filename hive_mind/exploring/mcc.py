@@ -1,7 +1,38 @@
+from abc import abstractmethod
+from typing import TypeVar, override
+import itertools
+import hashlib
+import uuid
+
 from dataclasses import dataclass
-import numpy as np
 from neat.genome import DefaultGenome
 from neat.nn import FeedForwardNetwork
+
+from hive_mind.agent import Entity
+from hive_mind.exploring.environment import Environment
+
+
+class EvolvingEntity(Entity):
+
+    @property
+    @abstractmethod
+    def age(self) -> int:
+        """
+        Return number of generations this entity has been around
+        """
+
+    @property
+    @abstractmethod
+    def parents(self) -> tuple[str]:
+        """
+        Return ids of the parents of this entity
+        """
+
+    @abstractmethod
+    def grow_older(self) -> None:
+        """
+        Update time related properties of this entity
+        """
 
 
 @dataclass
@@ -34,47 +65,101 @@ class ResourceTracker:
 
 
 class PopulationQueue:
-    """Manages a queue of genomes with fixed capacity"""
+    """Manages a queue of entities with fixed capacity"""
     def __init__(self, capacity: int):
-        self.capacity = capacity
-        self.queue: list[tuple[int, DefaultGenome]] = []  # (id, genome)
-        self.next_id = 0
+        self._capacity = capacity
+        self._queue: list[EvolvingEntity] = list()
 
-    def add(self, genome: DefaultGenome) -> int:
-        genome_id = self.next_id
-        self.next_id += 1
+    def add(self, entity: EvolvingEntity) -> None:
+        self._queue.append(entity)
 
-        self.queue.append((genome_id, genome))
-        if len(self.queue) > self.capacity:
-            self.queue.pop(0)  # Remove oldest
+    def add_batch(self, entities: list[EvolvingEntity]) -> None:
+        self._queue.extend(entities)
 
-        return genome_id
+    def remove_oldest(self) -> list[EvolvingEntity]:
+        num_to_remove = len(self._queue) - self._capacity
+        new_queue = []
 
-    def get_batch(self, size: int) -> list[tuple[int, DefaultGenome]]:
-        return self.queue[:size]
+        return []
+
+    def get_batch(self, size: int) -> list[EvolvingEntity]:
+        batch, rest = self._queue[:size], self._queue[size:]
+        self._queue = rest
+        return batch
 
     def __len__(self):
-        return len(self.queue)
+        return len(self._queue)
+
+
+def create_uuid_from_string_hashlib(input_string: str) -> uuid.UUID:
+    hash_object = hashlib.sha1(input_string.encode())
+    hex_dig = hash_object.hexdigest()
+    return uuid.UUID(hex=hex_dig[:32])
+
+
+class GenomeEntity(EvolvingEntity):
+    def __init__(self, genome: DefaultGenome, parent_ids: tuple[str]) -> None:
+        self._genome = genome
+        self._id: str = str(create_uuid_from_string_hashlib(str(self._genome.key)))
+        self._age: int = 0
+        self._parents = parent_ids
+
+    @property
+    @override
+    def id(self) -> str:
+        return self._id
+
+    @property
+    def type(self) -> str:
+        return "agent"
+
+    @property
+    @override
+    def age(self) -> int:
+        return self._age
+
+    @property
+    @override
+    def parents(self) -> tuple[str]:
+        return self._parents
+
+    @override
+    def grow_older(self) -> None:
+        self._age += 1
 
 
 class MCCEvolution:
     """Core MCC implementation managing coevolution process"""
-    
+
     def __init__(self, 
                  config: MCCConfig,
-                 agent_config: dict,  # NEAT config for agents
-                 env_config: dict):   # Config for environments
-        self.config = config
-        self.agent_config = agent_config
-        self.env_config = env_config
-        
-        # Population queues
-        self.agent_queue = PopulationQueue(config.agent_queue_size)
-        self.env_queue = PopulationQueue(config.env_queue_size)
-        
-        # Resource tracking
-        self.resource_tracker = ResourceTracker(config.resource_limit)
-        
+                 seed_agents: set[DefaultGenome],
+                 seed_envs: set[Environment]) -> None:
+        self._config = config
+        self._viable_population = PopulationQueue(config.agent_queue_size)
+
+        for entity in itertools.chain(seed_agents, seed_envs):
+            self._viable_population.add(entity)
+
+        self._resource_tracker = ResourceTracker(config.resource_limit)
+
+    def run_evolution(self) -> None:
+        """
+        Main loop running the evolution algorithm
+        """
+        parents = self._viable_population.get_batch(self._config.batch_size)
+        children = self._reproduce(parents)
+
+
+
+        # TODO: create pairs of child and env and then run them in parallel
+        for child in children:
+            pass
+
+
+    def _reproduce(self, parents: list[Entity]) -> list[Entity]:
+        return []
+
     def evaluate_agent(self, 
                       agent_genome: DefaultGenome, 
                       envs: list[tuple[int, DefaultGenome]]) -> bool:

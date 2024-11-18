@@ -193,6 +193,10 @@ class ImageAgent(Agent):
         return self._id
 
     @property
+    def type(self) -> str:
+        return "agent"
+
+    @property
     def location(self) -> dict[str, float]:
         """
         Get the current location of the agent.

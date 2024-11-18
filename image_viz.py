@@ -14,7 +14,7 @@ import pyvista as pv
 from numpy.typing import NDArray
 
 from hive_mind.agent import Agent
-from hive_mind.exploring.environment import Environment, HillEnvironment
+from hive_mind.exploring.environment import Environment, HillEnvironment, SlopedEnvironment
 from hive_mind.exploring.mcc import ResourceTracker
 from hive_mind.exploring.novelty import DomainAdapter, EvaluationResult, NoveltySearch
 from hive_mind.image_agent import ImageAgent
@@ -424,31 +424,34 @@ def plot_3d_hill(hill_image: np.ndarray, title: str, peaks: list[tuple[int, int]
 def main():
 
     width, height = 200, 200
-    config_path = os.path.abspath("config")  # Replace with your NEAT config path
-    neat_config = neat.Config(
-        DefaultGenome,
-        neat.DefaultReproduction,
-        neat.DefaultSpeciesSet,
-        neat.DefaultStagnation,
-        config_path
-    )
-    nov_hill_climber = NoveltyHillClimber((width, height), 8, neat_config)
-    winner = nov_hill_climber.start_sim()
-
-    print(f"{winner=}")
-    return
-
-#    hill_env = HillEnvironment(width, height)
-#    hill_env.complexity = 4
+#    config_path = os.path.abspath("config")  # Replace with your NEAT config path
+#    neat_config = neat.Config(
+#        DefaultGenome,
+#        neat.DefaultReproduction,
+#        neat.DefaultSpeciesSet,
+#        neat.DefaultStagnation,
+#        config_path
+#    )
+#    nov_hill_climber = NoveltyHillClimber((width, height), 8, neat_config)
+#    winner = nov_hill_climber.start_sim()
 #
-#    while True:
-#        hill_env.generate_surface()
-#        peaks = hill_env.get_peak_positions()
-#        hill_image = hill_env.get_data()
-#
-#        plot_3d_hill(hill_image, f'3D Visualization of Hill Image', peaks)
-#
+#    print(f"{winner=}")
 #    return
+
+
+    import matplotlib.pyplot as plt
+
+    for comp in [1, 3, 5, 7]:
+        env = SlopedEnvironment(width, height, complexity=comp)
+        plt.imshow(env.get_data(), cmap='gray', origin="lower")
+        plt.title(f"Surface {comp}")
+#        plt.colorbar(label="Height")
+        plt.show()
+#        hill_image = env.get_data()
+#
+#        plot_3d_hill(hill_image, f'3D Visualization of Sloped Image', [])
+
+    return
 
     area = 400, 400
 

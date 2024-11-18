@@ -64,6 +64,10 @@ class HillEnvironment(Environment):
     def id(self) -> str:
         return self._id
 
+    @property
+    def type(self) -> str:
+        return "env"
+
     def get_data(self) -> np.ndarray:
         """Returns the current hill surface image"""
         assert self._surface is not None
@@ -164,3 +168,108 @@ class HillEnvironment(Environment):
     def get_peak_positions(self) -> list[tuple[int, int]]:
         """Returns list of peak positions"""
         return [(int(p.x), int(p.y)) for p in self._peaks]
+
+
+class SlopedEnvironment(Environment):
+    def __init__(
+        self,
+        width: int = 100,
+        height: int = 100,
+        slope_x: float | None = None,
+        slope_y: float | None = None,
+        intercept: float = 0.0,
+        complexity: int = 1,
+    ) -> None:
+        self.width = width
+        self.height = height
+        self.complexity = complexity
+        self.intercept = intercept
+        self._surface: np.ndarray | None = None
+        self._id = str(uuid.uuid4())
+        self.initialize_slopes(slope_x, slope_y)
+        self.generate_surface()
+
+    def initialize_slopes(self, slope_x: float | None, slope_y: float | None) -> None:
+        """Initialize the slopes based on complexity."""
+        max_slope = self.complexity * 0.1  # Adjust this factor to control steepness per complexity
+        self.slope_x = slope_x if slope_x is not None else np.random.uniform(-max_slope, max_slope)
+        self.slope_y = slope_y if slope_y is not None else np.random.uniform(-max_slope, max_slope)
+
+    @property
+    def id(self) -> str:
+        return self._id
+
+    @property
+    def type(self) -> str:
+        return "env"
+
+    def get_data(self) -> np.ndarray:
+        """Returns the current sloped surface image."""
+        assert self._surface is not None
+        return self._surface
+
+    def update_data(self, new_data: np.ndarray) -> None:
+        """Updates the surface with new data."""
+        assert new_data.shape == (self.height, self.width)
+        self._surface = new_data
+
+    @property
+    def boundaries(self) -> tuple[int, int]:
+        """Returns (width, height) of the environment."""
+        return (self.width, self.height)
+
+    def generate_surface(self) -> None:
+        """Generates a new sloped flat surface."""
+        x = np.arange(self.width)
+        y = np.arange(self.height)
+        X, Y = np.meshgrid(x, y)
+
+        # Calculate the height at each point using the slopes.
+        heights = self.slope_x * X + self.slope_y * Y + self.intercept
+
+        # Instead of normalizing the heights to [0, 255], we adjust the scaling to reflect the actual steepness.
+        # We will translate the heights to positive values if necessary.
+        min_height = heights.min()
+        if min_height < 0:
+            heights -= min_height  # Shift heights so that minimum is 0
+
+        # Optionally scale the heights to prevent overflow when converting to uint8
+        max_height = heights.max()
+        scaling_factor = 1.0
+        if max_height > 255:
+            scaling_factor = 255 / max_height
+            heights *= scaling_factor
+
+        self._surface = heights.astype(np.uint8)
+
+    def get_height(self, x: float, y: float) -> float:
+        """Returns the actual height at given coordinates."""
+        assert self._surface is not None
+
+        # Convert to integer indices.
+        x_idx: int = int(x)
+        y_idx: int = int(y)
+
+        # Ensure indices are within boundaries.
+        x_idx = np.clip(x_idx, 0, self.width - 1)
+        y_idx = np.clip(y_idx, 0, self.height - 1)
+
+        return float(self._surface[y_idx, x_idx])
+
+
+    def mutate(self) -> None:
+        """Mutate the environment by possibly increasing complexity and adjusting slopes, driven by chance."""
+        # Decide randomly whether to increase complexity
+        if np.random.rand() < 0.5:
+            # Increase complexity
+            self.complexity += 1
+            # Re-initialize slopes based on new complexity
+            self.initialize_slopes(None, None)
+        else:
+            # Adjust slopes randomly within current complexity
+            max_slope = self.complexity * 0.1
+            self.slope_x = np.random.uniform(-max_slope, max_slope)
+            self.slope_y = np.random.uniform(-max_slope, max_slope)
+
+        # Re-generate the surface with updated parameters
+        self.generate_surface()
