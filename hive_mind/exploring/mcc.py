@@ -1,4 +1,5 @@
 from abc import abstractmethod
+from collections import defaultdict
 from typing import TypeVar, override
 import itertools
 import hashlib
@@ -32,6 +33,13 @@ class EvolvingEntity(Entity):
     def grow_older(self) -> None:
         """
         Update time related properties of this entity
+        """
+
+    @property
+    @abstractmethod
+    def needed(self) -> list[str]:
+        """
+        Return the list of other entities that this entity need to attempt a solution
         """
 
 
@@ -69,18 +77,32 @@ class PopulationQueue:
     def __init__(self, capacity: int):
         self._capacity = capacity
         self._queue: list[EvolvingEntity] = list()
+        self._entities_by_type = defaultdict(list)
 
     def add(self, entity: EvolvingEntity) -> None:
+        self._entities_by_type[entity.type].append(entity)
         self._queue.append(entity)
 
     def add_batch(self, entities: list[EvolvingEntity]) -> None:
-        self._queue.extend(entities)
+        for ent in entities:
+            self._entities_by_type[ent.type].append(ent)
+            self._queue.append(ent)
 
     def remove_oldest(self) -> list[EvolvingEntity]:
+        """
+        Removes the oldest entities in the population. Updates the internal
+        queue, and returned the list of removed.
+        """
         num_to_remove = len(self._queue) - self._capacity
-        new_queue = []
+        sorted_ents = sorted(self._queue, reverse=True, key=lambda it: it.age)
+        removed, self._queue = sorted_ents[:num_to_remove], sorted_ents[num_to_remove:]
 
-        return []
+        for ent in removed:
+            if ent.type in self._entities_by_type:
+                ents = self._entities_by_type[ent.type]
+                ents.remove(ent)
+
+        return removed
 
     def get_batch(self, size: int) -> list[EvolvingEntity]:
         batch, rest = self._queue[:size], self._queue[size:]
@@ -127,11 +149,16 @@ class GenomeEntity(EvolvingEntity):
     def grow_older(self) -> None:
         self._age += 1
 
+    @property
+    @override
+    def needed(self) -> list[str]:
+        return ["env"]
+
 
 class MCCEvolution:
     """Core MCC implementation managing coevolution process"""
 
-    def __init__(self, 
+    def __init__(self,
                  config: MCCConfig,
                  seed_agents: set[DefaultGenome],
                  seed_envs: set[Environment]) -> None:
@@ -150,12 +177,22 @@ class MCCEvolution:
         parents = self._viable_population.get_batch(self._config.batch_size)
         children = self._reproduce(parents)
 
-
-
         # TODO: create pairs of child and env and then run them in parallel
-        for child in children:
+        for idx, child in enumerate(children):
             pass
 
+    def _next(self, entities: list[EvolvingEntity], needed: list[str], idx: int) -> EvolvingEntity:
+        """
+        TODO: This is a build pipeline of the hierarchy being tested. Need a
+        way to express preferences to what `next` entity should be.
+        """
+        need_type = needed[0]
+        for i in range(idx + 1, len(entities)):
+            ent = entities[i]
+            if ent.type == need_type:
+                return ent
+
+        raise RuntimeError("Unexpected error, must be able to always find next match")
 
     def _reproduce(self, parents: list[Entity]) -> list[Entity]:
         return []
