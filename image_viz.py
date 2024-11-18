@@ -442,14 +442,14 @@ def main():
     import matplotlib.pyplot as plt
 
     for comp in [1, 3, 5, 7]:
-        env = SlopedEnvironment(width, height, complexity=comp)
-        plt.imshow(env.get_data(), cmap='gray', origin="lower")
-        plt.title(f"Surface {comp}")
+        env = HillEnvironment(width, height, complexity=comp)
+#        plt.imshow(env.get_data(), cmap='gray', origin="lower")
+#        plt.title(f"Surface {comp}")
 #        plt.colorbar(label="Height")
-        plt.show()
-#        hill_image = env.get_data()
+#        plt.show()
+        hill_image = env.get_data()
 #
-#        plot_3d_hill(hill_image, f'3D Visualization of Sloped Image', [])
+        plot_3d_hill(hill_image, f'3D Visualization of Sloped Image', [])
 
     return
 
