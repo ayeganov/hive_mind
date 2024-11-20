@@ -1,11 +1,13 @@
 from abc import abstractmethod
 from collections import defaultdict
-from typing import TypeVar, override
-import itertools
+from typing import Iterable, Iterator, TypeVar, cast, override
 import hashlib
+import itertools
+import random
 import uuid
 
 from dataclasses import dataclass
+from neat.config import Config
 from neat.genome import DefaultGenome
 from neat.nn import FeedForwardNetwork
 
@@ -24,7 +26,7 @@ class EvolvingEntity(Entity):
 
     @property
     @abstractmethod
-    def parents(self) -> tuple[str]:
+    def parents(self) -> tuple[str, str]:
         """
         Return ids of the parents of this entity
         """
@@ -46,11 +48,9 @@ class EvolvingEntity(Entity):
 @dataclass
 class MCCConfig:
     """Configuration parameters for MCC"""
-    agent_queue_size: int = 250
-    env_queue_size: int = 50
+    pop_queue_size: int = 250
     resource_limit: int = 5  # How many times an env can be used
     batch_size: int = 40  # Number of agents evaluated per batch
-    env_batch_size: int = 10  # Number of envs evaluated per batch
 
  
 class ResourceTracker:
@@ -83,7 +83,7 @@ class PopulationQueue:
         self._entities_by_type[entity.type].append(entity)
         self._queue.append(entity)
 
-    def add_batch(self, entities: list[EvolvingEntity]) -> None:
+    def add_batch(self, entities: Iterable[EvolvingEntity]) -> None:
         for ent in entities:
             self._entities_by_type[ent.type].append(ent)
             self._queue.append(ent)
@@ -120,7 +120,7 @@ def create_uuid_from_string_hashlib(input_string: str) -> uuid.UUID:
 
 
 class GenomeEntity(EvolvingEntity):
-    def __init__(self, genome: DefaultGenome, parent_ids: tuple[str]) -> None:
+    def __init__(self, genome: DefaultGenome, parent_ids: tuple[str, str]) -> None:
         self._genome = genome
         self._id: str = str(create_uuid_from_string_hashlib(str(self._genome.key)))
         self._age: int = 0
@@ -142,7 +142,7 @@ class GenomeEntity(EvolvingEntity):
 
     @property
     @override
-    def parents(self) -> tuple[str]:
+    def parents(self) -> tuple[str, str]:
         return self._parents
 
     @override
@@ -154,19 +154,55 @@ class GenomeEntity(EvolvingEntity):
     def needed(self) -> list[str]:
         return ["env"]
 
+    @property
+    def genome(self) -> DefaultGenome:
+        return self._genome
+
+
+class EnvEntity(EvolvingEntity):
+    def __init__(self, env: Environment) -> None:
+        self._env = env
+        self._age: int = 0
+
+    @property
+    @override
+    def id(self) -> str:
+        return self._env.id
+
+    @property
+    @override
+    def age(self) -> int:
+        return self._age
+
+    @property
+    @override
+    def parents(self) -> tuple[str, str]:
+        return tuple()
+
+    @override
+    def grow_older(self) -> None:
+        self._age += 1
+
+    @property
+    @override
+    def needed(self) -> list[str]:
+        return ["agent"]
+
 
 class MCCEvolution:
     """Core MCC implementation managing coevolution process"""
 
     def __init__(self,
                  config: MCCConfig,
+                 neat_config: Config,
                  seed_agents: set[DefaultGenome],
                  seed_envs: set[Environment]) -> None:
         self._config = config
-        self._viable_population = PopulationQueue(config.agent_queue_size)
+        self._neat_config = neat_config
+        self._viable_population = PopulationQueue(config.pop_queue_size)
+        self._genome_indexer = itertools.count(len(seed_agents))
 
-        for entity in itertools.chain(seed_agents, seed_envs):
-            self._viable_population.add(entity)
+#        self._viable_population.add_batch(itertools.chain(seed_agents, seed_envs)
 
         self._resource_tracker = ResourceTracker(config.resource_limit)
 
@@ -178,6 +214,7 @@ class MCCEvolution:
         children = self._reproduce(parents)
 
         # TODO: create pairs of child and env and then run them in parallel
+        # using multiproc or 3.13?
         for idx, child in enumerate(children):
             pass
 
@@ -191,10 +228,50 @@ class MCCEvolution:
             ent = entities[i]
             if ent.type == need_type:
                 return ent
+        raise RuntimeError("Unexpected error, must be able to find next match")
 
-        raise RuntimeError("Unexpected error, must be able to always find next match")
+    def _reproduce(self, parents: list[EvolvingEntity]) -> list[Entity]:
+        children = []
+        sorted_parents = sorted(parents, key=lambda it: it.type)
+        for ent_type, group in itertools.groupby(sorted_parents, key=lambda it: it.type):
+            if ent_type == "env":
+                children.extend(self._reproduce_envs(list(group), 10))
+            else:
+                children.extend(self._reproduce_agents(list(group), 40))
+        return children
 
-    def _reproduce(self, parents: list[Entity]) -> list[Entity]:
+    def _reproduce_agents(self, parents: list[EvolvingEntity], num_children: int) -> list[EvolvingEntity]:
+        genomes: list[GenomeEntity] = cast(list[GenomeEntity], parents)
+        children: list[EvolvingEntity] = []
+
+        config = self._neat_config
+
+        while len(children) < num_children:
+            parent1, parent2 = random.sample(genomes, 2)
+            parent1_genome = parent1.genome
+            parent2_genome = parent2.genome
+
+            child_genome = DefaultGenome(key=next(self._genome_indexer))
+
+            child_genome.configure_crossover(
+                parent1_genome,
+                parent2_genome,
+                config.genome_config,
+            )
+
+            child_genome.mutate(config.genome_config)
+
+            child = GenomeEntity(
+                genome=child_genome,
+                parent_ids=(parent1.id, parent2.id)
+            )
+
+            children.append(child)
+
+        return children
+
+
+    def _reproduce_envs(self, parents: list[EvolvingEntity], num_children: int) -> list[EvolvingEntity]:
         return []
 
     def evaluate_agent(self, 

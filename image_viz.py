@@ -10,15 +10,15 @@ from neat.population import Population
 import numpy as np
 import cv2
 import neat
-import pyvista as pv
 from numpy.typing import NDArray
 
 from hive_mind.agent import Agent
-from hive_mind.exploring.environment import Environment, HillEnvironment, SlopedEnvironment
+from hive_mind.exploring.environment import Environment, HillEnvironment, SlopedEnvironment, Terrain
 from hive_mind.exploring.mcc import ResourceTracker
 from hive_mind.exploring.novelty import DomainAdapter, EvaluationResult, NoveltySearch
 from hive_mind.image_agent import ImageAgent
 from hive_mind.exploring.opencv_visualizer import OpenCVHillClimberVisualizer, RenderAgents
+from hive_mind.viz import AnimatedHillPlotter
 
 
 class SimpleEnvironment(Environment):
@@ -441,15 +441,19 @@ def main():
 
     import matplotlib.pyplot as plt
 
-    for comp in [1, 3, 5, 7]:
-        env = HillEnvironment(width, height, complexity=comp)
+    plotter = AnimatedHillPlotter()
+    plotter.initialize_window((width, height))
+    for comp in range(50, 30, -1):
+        env = Terrain(width, height, scale=comp)
+        plotter.update_plot(env.get_data(), f"Scale {comp}", env.peaks)
+        print(f"{comp=} done")
 #        plt.imshow(env.get_data(), cmap='gray', origin="lower")
 #        plt.title(f"Surface {comp}")
 #        plt.colorbar(label="Height")
 #        plt.show()
         hill_image = env.get_data()
 #
-        plot_3d_hill(hill_image, f'3D Visualization of Sloped Image', [])
+#        plot_3d_hill(hill_image, f'3D Visualization of Sloped Image', [])
 
     return
 
