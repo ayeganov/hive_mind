@@ -13,7 +13,7 @@ import neat
 from numpy.typing import NDArray
 
 from hive_mind.agent import Agent
-from hive_mind.exploring.environment import Environment, HillEnvironment, SlopedEnvironment, Terrain
+from hive_mind.exploring.environment import Environment, HillEnvironment, Peak, SlopedEnvironment, Terrain
 from hive_mind.exploring.mcc import ResourceTracker
 from hive_mind.exploring.novelty import DomainAdapter, EvaluationResult, NoveltySearch
 from hive_mind.image_agent import ImageAgent
@@ -78,7 +78,7 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
         self._area = area
         self._epoch_sec = epoch_sec
         self._num_landscapes = num_landscapes
-        self._environments = [HillEnvironment(*area, complexity=2) for _ in range(num_landscapes)]
+        self._environments = [Terrain(*area, scale=120, base=np.random.random_integers(5, 105)) for _ in range(num_landscapes)]
         self._seed_agents: set[DefaultGenome] = set()
         self._seed_agent_ids: set[str] = set()
         self._seed_landscapes: set[Environment] = set()
@@ -89,9 +89,10 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
         visualizer = OpenCVHillClimberVisualizer(window_name="OpenCV Visualizer")
         return visualizer
 
-    def _is_at_peak(self, goal: tuple[int, int], agent: Agent) -> tuple[bool, float]:
+    def _is_at_peak(self, goal: Peak, agent: Agent) -> tuple[bool, float]:
         x_y = np.array((agent.location['x'], agent.location['y']))
-        dist = float(np.sqrt(np.sum((x_y - goal)**2)))
+        goal_xy = np.array((goal.x, goal.y))
+        dist = float(np.sqrt(np.sum((x_y - goal_xy)**2)))
         return (bool(dist <= 20), dist)
 
     def is_search_completed(self) -> bool:
@@ -113,10 +114,10 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
         agent_behaviors: dict[Agent, NDArray[np.float32]] = {}
         for env, tracker in zip(self._environments, self._resource_trackers):
 
-            render_ctx.peaks = env.get_peak_positions()
+            render_ctx.peaks = env.peaks
 
             visualizer.set_environment(env)
-            goal = env.get_peak_positions()[0]
+            goal = env.peaks[0]
 
             set_agent_locations(agents, goal, env)
 
@@ -230,12 +231,12 @@ def create_agents(genomes: list[tuple[int, DefaultGenome]],
 
 
 def set_agent_locations(agents: dict[Agent, DefaultGenome],
-                        goal: tuple[int, int],
+                        goal: Peak,
                         env: Environment,) -> None:
     for agent in agents:
         x, y = env.boundaries
-        agent_x = x - goal[0]
-        agent_y = y - goal[1]
+        agent_x = x - goal.x
+        agent_y = y - goal.y
         agent.location = {'x': agent_x, 'y': agent_y}
 
 
@@ -424,22 +425,20 @@ def plot_3d_hill(hill_image: np.ndarray, title: str, peaks: list[tuple[int, int]
 def main():
 
     width, height = 200, 200
-#    config_path = os.path.abspath("config")  # Replace with your NEAT config path
-#    neat_config = neat.Config(
-#        DefaultGenome,
-#        neat.DefaultReproduction,
-#        neat.DefaultSpeciesSet,
-#        neat.DefaultStagnation,
-#        config_path
-#    )
-#    nov_hill_climber = NoveltyHillClimber((width, height), 8, neat_config)
-#    winner = nov_hill_climber.start_sim()
-#
-#    print(f"{winner=}")
-#    return
+    config_path = os.path.abspath("config")  # Replace with your NEAT config path
+    neat_config = neat.Config(
+        DefaultGenome,
+        neat.DefaultReproduction,
+        neat.DefaultSpeciesSet,
+        neat.DefaultStagnation,
+        config_path
+    )
+    nov_hill_climber = NoveltyHillClimber((width, height), 8, neat_config)
+    winner = nov_hill_climber.start_sim()
 
+    print(f"{winner=}")
+    return
 
-    import matplotlib.pyplot as plt
 
     plotter = AnimatedHillPlotter(fps=30, smooth_factor=0.08)
 
@@ -447,7 +446,7 @@ def main():
     titles = []
     peaks = []
     for comp in range(120, 80, -1):
-        env = Terrain(width, height, scale=comp)
+        env = Terrain(width, height, scale=comp, base=42)
         envs.append(env.get_data())
         peaks.append(env.peaks)
         titles.append(f"Scale {comp}")

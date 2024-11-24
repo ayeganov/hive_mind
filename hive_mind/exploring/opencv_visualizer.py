@@ -3,7 +3,7 @@ from typing import Iterable
 import cv2
 import numpy as np
 
-from .environment import Environment
+from .environment import Environment, Peak
 from .visualizer import Visualizer
 from hive_mind.agent import Agent
 
@@ -35,7 +35,7 @@ class RenderAgents:
     agents: Iterable[Agent]
     dist: float = float("inf")
     closest_id: str | None = None
-    peaks: list[tuple[int, int]] | None = None
+    peaks: list[Peak] | None = None
 
 
 class OpenCVHillClimberVisualizer(Visualizer[RenderAgents]):
@@ -86,9 +86,10 @@ class OpenCVHillClimberVisualizer(Visualizer[RenderAgents]):
 
         goal = ctx.peaks[0]
 
+        goal_xy = (int(goal.x), int(goal.y))
         display_image = cv2.cvtColor(env_data, cv2.COLOR_GRAY2BGR)
-        cv2.circle(display_image, goal, radius=4, color=(0, 0, 255), thickness=-1)
-        cv2.circle(display_image, goal, radius=20, color=(0, 0, 255), thickness=1)
+        cv2.circle(display_image, goal_xy, radius=4, color=(0, 0, 255), thickness=-1)
+        cv2.circle(display_image, goal_xy, radius=20, color=(0, 0, 255), thickness=1)
 
         for agent in ctx.agents:
             loc = agent.location

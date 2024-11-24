@@ -1,6 +1,8 @@
 import numpy as np
 import pyvista as pv
 
+from hive_mind.exploring.environment import Peak
+
 
 class AnimatedHillPlotter:
     def __init__(self,
@@ -20,7 +22,7 @@ class AnimatedHillPlotter:
         self._current_grid = None
         self._images: list[np.ndarray] = []
         self._titles: list[str] = []
-        self._peaks: list[list[tuple[int, int]]] = []
+        self._peaks: list[list[Peak]] = []
         self._current_image_index = 0
         self._is_animating = False
         self._auto_play = False
@@ -48,7 +50,8 @@ class AnimatedHillPlotter:
         # Add new peak markers
         if image_index < len(self._peaks):
             current_image = self._images[image_index]
-            for peak_y, peak_x in self._peaks[image_index]:
+            for peak in self._peaks[image_index]:
+                peak_x, peak_y = peak.y, peak.x
                 # Ensure peak coordinates are within bounds
                 peak_x_int = np.clip(peak_x, 0, current_image.shape[1] - 1)
                 peak_y_int = np.clip(peak_y, 0, current_image.shape[0] - 1)
@@ -184,7 +187,7 @@ class AnimatedHillPlotter:
     def initialize_window(self, 
                          images: list[np.ndarray], 
                          titles: list[str] | None = None,
-                         peaks: list[list[tuple[int, int]]] | None = None,
+                         peaks: list[list[Peak]] | None = None,
                          auto_play: bool = False) -> None:
         """
         Initialize the plotting window with a list of images and titles.

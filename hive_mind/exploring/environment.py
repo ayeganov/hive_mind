@@ -277,16 +277,18 @@ class SlopedEnvironment(Environment):
 
 
 class Terrain(Environment):
-    def __init__(self, width: int, height: int, scale: float = 100.0):
+    def __init__(self, width: int, height: int, scale: float = 100.0, base=42):
         """
         Initialize the terrain with the given dimensions and noise scale.
         :param width: Width of the terrain grid.
         :param height: Height of the terrain grid.
         :param scale: Scale of the noise, influencing the level of detail.
+        :param base: Base random value
         """
         self._width = width
         self._height = height
         self._scale = scale
+        self._base = base
         self._terrain_data = self._generate_perlin_noise()
         self._id = str(uuid.uuid4())
         self._peaks = self._find_peaks()
@@ -321,7 +323,7 @@ class Terrain(Environment):
                                               lacunarity=2.0,
                                               repeatx=self._width,
                                               repeaty=self._height,
-                                              base=42)
+                                              base=self._base)
         terrain_normalized = (terrain + 1.0) / 2.0
         terrain_scaled = terrain_normalized * 255.0
 
@@ -335,7 +337,7 @@ class Terrain(Environment):
         Find all peaks in the terrain by comparing each cell to its neighbors.
         :return: A list of tuples representing the coordinates of the peaks.
         """
-        peaks = []
+        peaks: list[Peak] = []
 
         for y in range(1, self._height - 1):
             for x in range(1, self._width - 1):
@@ -344,16 +346,37 @@ class Terrain(Environment):
 
                 # Get the values of the 8 neighboring cells
                 neighbors = [
-                    self._terrain_data[y - 1, x - 1], self._terrain_data[y - 1, x], self._terrain_data[y - 1, x + 1],
-                    self._terrain_data[y, x - 1],                             self._terrain_data[y, x + 1],
-                    self._terrain_data[y + 1, x - 1], self._terrain_data[y + 1, x], self._terrain_data[y + 1, x + 1]
+                    self._terrain_data[y - 1, x - 1],
+                    self._terrain_data[y - 1, x],
+                    self._terrain_data[y - 1, x + 1],
+                    self._terrain_data[y, x - 1],
+                    self._terrain_data[y, x + 1],
+                    self._terrain_data[y + 1, x - 1],
+                    self._terrain_data[y + 1, x],
+                    self._terrain_data[y + 1, x + 1],
                 ]
 
                 # Check if the current cell is greater than all its neighbors
                 if all(current_value > neighbor for neighbor in neighbors):
-                    peaks.append((x, y))
+                    new_peak = Peak(x, y, current_value, 1.0, "perlin")
+                    peaks.append(new_peak)
 
-        return peaks
+#        assert peaks, f"Oops, found no peaks with base {self._base}"
+        return sorted(peaks, key=lambda p: p.height, reverse=True)
+
+    def get_height(self, x: float, y: float) -> float:
+        """Returns the actual height at given coordinates."""
+        assert self._terrain_data is not None
+
+        # Convert to integer indices.
+        x_idx: int = int(x)
+        y_idx: int = int(y)
+
+        # Ensure indices are within boundaries.
+        x_idx = np.clip(x_idx, 0, self._width - 1)
+        y_idx = np.clip(y_idx, 0, self._height - 1)
+
+        return float(self._terrain_data[y_idx, x_idx])
 
     @override
     def get_data(self) -> np.ndarray:
@@ -361,7 +384,7 @@ class Terrain(Environment):
         Retrieve the current terrain data.
         :return: A 2D numpy array representing the terrain height values.
         """
-        return self._terrain_data
+        return self._terrain_data.astype(np.uint8)
 
     @override
     def update_data(self, new_data: Any) -> None:
