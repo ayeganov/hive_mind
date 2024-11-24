@@ -441,8 +441,20 @@ def main():
 
     import matplotlib.pyplot as plt
 
-    plotter = AnimatedHillPlotter()
-    plotter.initialize_window((width, height))
+    plotter = AnimatedHillPlotter(fps=30, smooth_factor=0.08)
+
+    envs = []
+    titles = []
+    peaks = []
+    for comp in range(120, 80, -1):
+        env = Terrain(width, height, scale=comp)
+        envs.append(env.get_data())
+        peaks.append(env.peaks)
+        titles.append(f"Scale {comp}")
+
+    plotter.initialize_window(envs, titles, peaks, auto_play=True)
+
+    return
     for comp in range(50, 30, -1):
         env = Terrain(width, height, scale=comp)
         plotter.update_plot(env.get_data(), f"Scale {comp}", env.peaks)

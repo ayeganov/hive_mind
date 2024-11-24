@@ -316,9 +316,9 @@ class Terrain(Environment):
             for x in range(self._width):
                 terrain[y][x] = noise.pnoise2(x / self._scale,
                                               y / self._scale,
-                                              octaves=3,
-                                              persistence=0.5,
-                                              lacunarity=1.5,
+                                              octaves=6,
+                                              persistence=0.2,
+                                              lacunarity=2.0,
                                               repeatx=self._width,
                                               repeaty=self._height,
                                               base=42)
@@ -336,23 +336,23 @@ class Terrain(Environment):
         :return: A list of tuples representing the coordinates of the peaks.
         """
         peaks = []
-        
+
         for y in range(1, self._height - 1):
             for x in range(1, self._width - 1):
                 # Get the value of the current cell
                 current_value = self._terrain_data[y, x]
-                
+
                 # Get the values of the 8 neighboring cells
                 neighbors = [
                     self._terrain_data[y - 1, x - 1], self._terrain_data[y - 1, x], self._terrain_data[y - 1, x + 1],
                     self._terrain_data[y, x - 1],                             self._terrain_data[y, x + 1],
                     self._terrain_data[y + 1, x - 1], self._terrain_data[y + 1, x], self._terrain_data[y + 1, x + 1]
                 ]
-                
+
                 # Check if the current cell is greater than all its neighbors
                 if all(current_value > neighbor for neighbor in neighbors):
                     peaks.append((x, y))
-        
+
         return peaks
 
     @override
