@@ -233,10 +233,11 @@ def create_agents(genomes: list[tuple[int, DefaultGenome]],
 def set_agent_locations(agents: dict[Agent, DefaultGenome],
                         goal: Peak,
                         env: Environment,) -> None:
+    min_idx = np.unravel_index(np.argmin(env.get_data()), env.get_data().shape)
+    x_min, y_min, *_ = min_idx
     for agent in agents:
-        x, y = env.boundaries
-        agent_x = x - goal.x
-        agent_y = y - goal.y
+        agent_x = int(x_min)
+        agent_y = int(y_min)
         agent.location = {'x': agent_x, 'y': agent_y}
 
 
