@@ -16,7 +16,7 @@ class Environment(Entity, ABC):
     """
 
     @abstractmethod
-    def get_data(self) -> Any:
+    def get_data(self, dtype: str = "uint8") -> Any:
         """
         Retrieve the current environment data.
 
@@ -67,10 +67,10 @@ class HillEnvironment(Environment):
     def type(self) -> str:
         return "env"
 
-    def get_data(self) -> np.ndarray:
+    def get_data(self, dtype: str = "uint8") -> np.ndarray:
         """Returns the current hill surface image"""
         assert self._surface is not None
-        return self._surface
+        return self._surface.astype(dtype)
 
     def update_data(self, new_data: np.ndarray) -> None:
         """Updates the surface with new data"""
@@ -203,10 +203,10 @@ class SlopedEnvironment(Environment):
     def type(self) -> str:
         return "env"
 
-    def get_data(self) -> np.ndarray:
+    def get_data(self, dtype: str = "uint8") -> np.ndarray:
         """Returns the current sloped surface image."""
         assert self._surface is not None
-        return self._surface
+        return self._surface.astype(dtype)
 
     def update_data(self, new_data: np.ndarray) -> None:
         """Updates the surface with new data."""
@@ -304,7 +304,7 @@ class Terrain(Environment):
         return "env"
 
     @property
-    def peaks(self) -> list:
+    def peaks(self) -> list[Peak]:
         return self._peaks
 
     def _generate_perlin_noise(self) -> np.ndarray:
@@ -332,7 +332,7 @@ class Terrain(Environment):
 
         return terrain_scaled
 
-    def _find_peaks(self) -> list:
+    def _find_peaks(self) -> list[Peak]:
         """
         Find all peaks in the terrain by comparing each cell to its neighbors.
         :return: A list of tuples representing the coordinates of the peaks.
@@ -379,12 +379,12 @@ class Terrain(Environment):
         return float(self._terrain_data[y_idx, x_idx])
 
     @override
-    def get_data(self) -> np.ndarray:
+    def get_data(self, dtype: str = "uint8") -> np.ndarray:
         """
         Retrieve the current terrain data.
         :return: A 2D numpy array representing the terrain height values.
         """
-        return self._terrain_data.astype(np.uint8)
+        return self._terrain_data.astype(dtype)
 
     @override
     def update_data(self, new_data: Any) -> None:
