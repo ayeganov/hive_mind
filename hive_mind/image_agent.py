@@ -108,8 +108,8 @@ class ImageAgent(Agent):
         if len(output_tensor) < 2:
             raise ValueError("NEAT network must output at least two values for speeds.")
 
-        left_speed = output_tensor[0].item()
-        right_speed = output_tensor[1].item()
+        left_speed = output_tensor[0].item() * .5
+        right_speed = output_tensor[1].item() * .5
 #        self._gaze_direction = np.array([np.cos(output_tensor[2].item()), np.sin(output_tensor[2].item())])
 #        self._focus = output_tensor[3].item()
 
