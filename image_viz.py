@@ -1,3 +1,4 @@
+from argparse import ArgumentParser, Namespace
 import copy
 import time
 import uuid
@@ -233,8 +234,8 @@ def create_agents(genomes: list[tuple[int, DefaultGenome]],
 def set_agent_locations(agents: dict[Agent, DefaultGenome],
                         goal: Peak,
                         env: Environment,) -> None:
-    min_idx = np.unravel_index(np.argmin(env.get_data()), env.get_data().shape)
-    x_min, y_min, *_ = min_idx
+    min_idx = np.unravel_index(np.argmin(env.get_data("float32")), env.get_data().shape)
+    y_min, x_min, *_ = min_idx
     for agent in agents:
         agent_x = int(x_min)
         agent_y = int(y_min)
@@ -423,64 +424,59 @@ def plot_3d_hill(hill_image: np.ndarray, title: str, peaks: list[tuple[int, int]
     plotter.show()
 
 
+def run_climbing(args: Namespace) -> None:
+   config_path = os.path.abspath(args.config)
+   neat_config = neat.Config(
+       DefaultGenome,
+       neat.DefaultReproduction,
+       neat.DefaultSpeciesSet,
+       neat.DefaultStagnation,
+       config_path
+   )
+   nov_hill_climber = NoveltyHillClimber((args.width, args.height), 8, neat_config)
+   winner = nov_hill_climber.start_sim()
+   print(f"{winner=}")
+
+
+def run_animation(args: Namespace) -> None:
+   plotter = AnimatedHillPlotter(fps=args.fps, smooth_factor=args.smooth)
+   envs: list[np.ndarray] = []
+   titles: list[str] = []
+   peaks: list[list[Peak]] = []
+   for comp in range(args.scale_start, args.scale_end, -1):
+       env = Terrain(args.width, args.height, scale=comp, base=42)
+       envs.append(env.get_data())
+       peaks.append(env.peaks)
+       titles.append(f"Scale {comp}")
+   plotter.initialize_window(envs, titles, peaks, auto_play=True)
+
+
+def parse_args() -> Namespace:
+   parser = ArgumentParser(description='Hill Climbing and Terrain Animation Tool')
+   subparsers = parser.add_subparsers(dest='command', required=True)
+
+   climb_parser = subparsers.add_parser('climb', help='Run novelty hill climber')
+   climb_parser.add_argument('-w', '--width', type=int, default=200)
+   climb_parser.add_argument('-ht', '--height', type=int, default=200)
+   climb_parser.add_argument('-c', '--config', type=str, default='config')
+   climb_parser.set_defaults(func=run_climbing)
+
+   animate_parser = subparsers.add_parser('animate', help='Run terrain animation')
+   animate_parser.add_argument('-w', '--width', type=int, default=200)
+   animate_parser.add_argument('-ht', '--height', type=int, default=200)
+   animate_parser.add_argument('-f', '--fps', type=float, default=30)
+   animate_parser.add_argument('-s', '--smooth', type=float, default=0.08)
+   animate_parser.add_argument('-ss', '--scale-start', type=int, default=120)
+   animate_parser.add_argument('-se', '--scale-end', type=int, default=80)
+   animate_parser.set_defaults(func=run_animation)
+
+   return parser.parse_args()
+
+
 def main():
 
-    width, height = 200, 200
-    config_path = os.path.abspath("config")  # Replace with your NEAT config path
-    neat_config = neat.Config(
-        DefaultGenome,
-        neat.DefaultReproduction,
-        neat.DefaultSpeciesSet,
-        neat.DefaultStagnation,
-        config_path
-    )
-    nov_hill_climber = NoveltyHillClimber((width, height), 8, neat_config)
-    winner = nov_hill_climber.start_sim()
-
-    print(f"{winner=}")
-    return
-
-
-    plotter = AnimatedHillPlotter(fps=30, smooth_factor=0.08)
-
-    envs = []
-    titles = []
-    peaks = []
-    for comp in range(120, 80, -1):
-        env = Terrain(width, height, scale=comp, base=42)
-        envs.append(env.get_data())
-        peaks.append(env.peaks)
-        titles.append(f"Scale {comp}")
-
-    plotter.initialize_window(envs, titles, peaks, auto_play=True)
-
-    return
-    for comp in range(50, 30, -1):
-        env = Terrain(width, height, scale=comp)
-        plotter.update_plot(env.get_data(), f"Scale {comp}", env.peaks)
-        print(f"{comp=} done")
-#        plt.imshow(env.get_data(), cmap='gray', origin="lower")
-#        plt.title(f"Surface {comp}")
-#        plt.colorbar(label="Height")
-#        plt.show()
-        hill_image = env.get_data()
-#
-#        plot_3d_hill(hill_image, f'3D Visualization of Sloped Image', [])
-
-    return
-
-    area = 400, 400
-
-    sim = ImageCrawlersSim(area, 8, neat_config)
-    best = sim.start_sim()
-
-
-#    plt.imshow(hill_image, cmap='viridis')
-#    plt.colorbar()
-#    plt.title('Hill Image')
-#    plt.show()
-
-#    print('\nBest genome:\n{!s}'.format(best))
+    args = parse_args()
+    args.func(args)
 
 
 if __name__ == "__main__":
