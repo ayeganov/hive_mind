@@ -9,7 +9,7 @@ fitness_threshold     = 300000
 reset_on_extinction   = 0
 
 [DefaultGenome]
-num_inputs              = 36
+num_inputs              = 9
 num_hidden              = 0
 num_outputs             = 2
 initial_connection      = full
@@ -41,8 +41,8 @@ response_mutate_power   = 0.01
 response_max_value      = 3.0
 response_min_value      = -3.0
 
-weight_max_value        = 3
-weight_min_value        = -3
+weight_max_value        = 2
+weight_min_value        = -2
 weight_init_mean        = 0.0
 weight_init_stdev       = 1.0
 weight_mutate_rate      = 0.8

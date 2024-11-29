@@ -8,6 +8,7 @@ import noise
 import numpy as np
 
 from hive_mind.agent import Entity
+from hive_mind.exploring.gene import TerrainGene
 
 
 class Environment(Entity, ABC):
@@ -277,7 +278,12 @@ class SlopedEnvironment(Environment):
 
 
 class Terrain(Environment):
-    def __init__(self, width: int, height: int, scale: float = 100.0, base=42):
+    def __init__(self,
+                 width: int | None = None,
+                 height: int | None = None,
+                 scale: float = 100.0,
+                 base: float = 42,
+                 id: str = str(uuid.uuid4()),):
         """
         Initialize the terrain with the given dimensions and noise scale.
         :param width: Width of the terrain grid.
@@ -289,9 +295,32 @@ class Terrain(Environment):
         self._height = height
         self._scale = scale
         self._base = base
-        self._terrain_data = self._generate_perlin_noise()
-        self._id = str(uuid.uuid4())
-        self._peaks = self._find_peaks()
+        self._octaves: int = 1
+        self._persistence = 0.1
+        self._lacunarity = 0.5
+        if None not in (width, height):
+            self._terrain_data = self._generate_perlin_noise()
+            self._peaks = self._find_peaks()
+        else:
+            self._terrain_data = np.array(())
+            self._peaks = []
+        self._id = id
+
+    @classmethod
+    def from_genes(cls, genes: TerrainGene) -> "Terrain":
+        base = cls()
+        base._width = genes.size
+        base._height = genes.size
+        base._scale = genes.scale
+        base._base = genes.base
+        base._octaves = genes.octaves
+        base._persistence = genes.persistence
+        base._lacunarity = genes.lacunarity
+        base._id = genes.id
+        base._terrain_data = base._generate_perlin_noise()
+        base._peaks = base._find_peaks()
+
+        return base
 
     @property
     @override
@@ -312,15 +341,16 @@ class Terrain(Environment):
         Generate terrain height values using Perlin noise.
         :return: A 2D numpy array representing terrain height values.
         """
+        assert self._height and self._width
         terrain = np.zeros((self._height, self._width))
 
         for y in range(self._height):
             for x in range(self._width):
-                terrain[y][x] = noise.pnoise2(x / self._scale,
+                terrain[y][x] = noise.snoise2(x / self._scale,
                                               y / self._scale,
-                                              octaves=6,
-                                              persistence=0.2,
-                                              lacunarity=2.0,
+                                              octaves=self._octaves,
+                                              persistence=self._persistence,
+                                              lacunarity=self._lacunarity,
                                               repeatx=self._width,
                                               repeaty=self._height,
                                               base=self._base)
@@ -338,6 +368,7 @@ class Terrain(Environment):
         :return: A list of tuples representing the coordinates of the peaks.
         """
         peaks: list[Peak] = []
+        assert self._height and self._width
 
         for y in range(1, self._height - 1):
             for x in range(1, self._width - 1):
@@ -361,12 +392,13 @@ class Terrain(Environment):
                     new_peak = Peak(x, y, current_value, 1.0, "perlin")
                     peaks.append(new_peak)
 
-#        assert peaks, f"Oops, found no peaks with base {self._base}"
+        assert peaks, f"Oops, found no peaks with base {self._base}"
         return sorted(peaks, key=lambda p: p.height, reverse=True)
 
     def get_height(self, x: float, y: float) -> float:
         """Returns the actual height at given coordinates."""
         assert self._terrain_data is not None
+        assert self._height and self._width
 
         # Convert to integer indices.
         x_idx: int = int(x)
@@ -397,4 +429,5 @@ class Terrain(Environment):
         Return the boundaries of this terrain.
         :return: A tuple containing width and height of the terrain.
         """
+        assert self._height and self._width
         return self._width, self._height

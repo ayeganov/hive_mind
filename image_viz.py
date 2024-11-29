@@ -1,5 +1,7 @@
 from argparse import ArgumentParser, Namespace
 import copy
+import itertools
+import pathlib
 import time
 import uuid
 from collections import defaultdict
@@ -14,8 +16,10 @@ import neat
 from numpy.typing import NDArray
 
 from hive_mind.agent import Agent
+from hive_mind.exploring.checkpoint import Checkpointer
 from hive_mind.exploring.environment import Environment, HillEnvironment, Peak, SlopedEnvironment, Terrain
-from hive_mind.exploring.mcc import ResourceTracker
+from hive_mind.exploring.gene import TerrainGene
+from hive_mind.exploring.mcc import AgentGenomeEntity, EnvEntity, EvolvingEntity, ResourceTracker
 from hive_mind.exploring.novelty import DomainAdapter, EvaluationResult, NoveltySearch
 from hive_mind.image_agent import ImageAgent
 from hive_mind.exploring.opencv_visualizer import OpenCVHillClimberVisualizer, RenderAgents
@@ -43,13 +47,13 @@ class SimpleEnvironment(Environment):
             self._image = image_path
 
     @override
-    def get_data(self) -> Any:
+    def get_data(self, dtype: str = "uint8") -> Any:
         """
         Retrieve the current environment image.
 
         :return: The environment image as a NumPy array.
         """
-        return self._image
+        return self._image.astype(dtype)
 
     @override
     def update_data(self, new_data: Any) -> None:
@@ -79,11 +83,19 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
         self._area = area
         self._epoch_sec = epoch_sec
         self._num_landscapes = num_landscapes
-        self._environments = [Terrain(*area, scale=120, base=np.random.random_integers(5, 105)) for _ in range(num_landscapes)]
+        self._env_genes = [TerrainGene(id=str(uuid.uuid4()), size=area[0], scale=140, base=np.random.random_integers(5, 105)) for _ in range(num_landscapes)]
+        self._environments = {gene.id: Terrain.from_genes(gene) for gene in self._env_genes}
         self._seed_agents: set[DefaultGenome] = set()
         self._seed_agent_ids: set[str] = set()
-        self._seed_landscapes: set[Environment] = set()
+        self._seed_landscapes: set[TerrainGene] = set()
         self._resource_trackers = [ResourceTracker(5) for _ in range(num_landscapes)]
+
+    @property
+    @override
+    def collected_population(self) -> list[EvolvingEntity]:
+        agent_ents = (AgentGenomeEntity(g, tuple()) for g in self._seed_agents)
+        env_ents = (EnvEntity(g, tuple()) for g in self._seed_landscapes)
+        return list(itertools.chain(agent_ents, env_ents))
 
     def setup_evaluation(self) -> OpenCVHillClimberVisualizer:
         """Setup visualization and environment"""
@@ -109,18 +121,19 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
         """Run agent evaluation and return behavior characterization"""
         visualizer = domain_data
 
-        agents = create_agents(genomes, config, self._environments[0])
+        first_env = next(iter(self._environments.values()))
+        agents = create_agents(genomes, config, first_env)
         render_ctx = RenderAgents(agents=agents.keys())
 
         agent_behaviors: dict[Agent, NDArray[np.float32]] = {}
-        for env, tracker in zip(self._environments, self._resource_trackers):
+        for env, tracker in zip(self._environments.values(), self._resource_trackers):
 
             render_ctx.peaks = env.peaks
 
             visualizer.set_environment(env)
             goal = env.peaks[0]
 
-            set_agent_locations(agents, goal, env)
+            set_agent_locations(agents, env)
 
             start = time.time()
             delta = 0
@@ -143,7 +156,11 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
                         if agent.id not in self._seed_agent_ids:
                             self._seed_agents.add(copy.deepcopy(genome))
                             self._seed_agent_ids.add(agent.id)
-                            self._seed_landscapes.add(env)
+
+                            for gene in self._env_genes:
+                                if gene.id == env.id:
+                                    self._seed_landscapes.add(gene)
+                                    break
 
                             print(f"Agent {agent.id} has been added to seeds")
                             print(f"Landscape added to seeds")
@@ -190,14 +207,20 @@ class NoveltyHillClimber:
             min_novelty_score=0.01
         )
         self._population = neat.Population(config)
+        self._neat_config = config
         self._stats = neat.StatisticsReporter()
         self._population.add_reporter(self._stats)
         self._population.add_reporter(neat.StdOutReporter(True))
+        self._checkpointer = Checkpointer(pathlib.Path("/tmp/mcc_experiments_perlin"))
 
     def start_sim(self) -> DefaultGenome | None:
         """Start the simulation"""
         while not self._adapter.is_search_completed():
+            self._checkpointer.start_generation(self._population.generation)
             self._population.run(self._evaluate, 1)
+            self._checkpointer.end_generation(None, self._neat_config, self._adapter.collected_population)
+
+        self._checkpointer.save_checkpoint(None, self._neat_config, self._adapter.collected_population, self._population.generation)
 
     def _evaluate(self, genomes: list[tuple[int, DefaultGenome]], config: neat.Config) -> None:
         """Evaluation function that bridges domain adapter and novelty search"""
@@ -232,7 +255,6 @@ def create_agents(genomes: list[tuple[int, DefaultGenome]],
 
 
 def set_agent_locations(agents: dict[Agent, DefaultGenome],
-                        goal: Peak,
                         env: Environment,) -> None:
     min_idx = np.unravel_index(np.argmin(env.get_data("float32")), env.get_data().shape)
     y_min, x_min, *_ = min_idx
@@ -433,7 +455,8 @@ def run_climbing(args: Namespace) -> None:
        neat.DefaultStagnation,
        config_path
    )
-   nov_hill_climber = NoveltyHillClimber((args.width, args.height), 8, neat_config)
+   epoch_time = 8
+   nov_hill_climber = NoveltyHillClimber((args.width, args.height), epoch_time, neat_config)
    winner = nov_hill_climber.start_sim()
    print(f"{winner=}")
 
@@ -444,33 +467,45 @@ def run_animation(args: Namespace) -> None:
    titles: list[str] = []
    peaks: list[list[Peak]] = []
    for comp in range(args.scale_start, args.scale_end, -1):
-       env = Terrain(args.width, args.height, scale=comp, base=42)
+       env = Terrain(args.width, args.height, scale=float(comp), base=args.base)
        envs.append(env.get_data())
        peaks.append(env.peaks)
        titles.append(f"Scale {comp}")
    plotter.initialize_window(envs, titles, peaks, auto_play=True)
 
 
+def run_mcc(args: Namespace) -> None:
+    pass
+
+
 def parse_args() -> Namespace:
-   parser = ArgumentParser(description='Hill Climbing and Terrain Animation Tool')
-   subparsers = parser.add_subparsers(dest='command', required=True)
+    parser = ArgumentParser(description='Hill Climbing and Terrain Animation Tool')
+    subparsers = parser.add_subparsers(dest='command', required=True)
 
-   climb_parser = subparsers.add_parser('climb', help='Run novelty hill climber')
-   climb_parser.add_argument('-w', '--width', type=int, default=200)
-   climb_parser.add_argument('-ht', '--height', type=int, default=200)
-   climb_parser.add_argument('-c', '--config', type=str, default='config')
-   climb_parser.set_defaults(func=run_climbing)
+    climb_parser = subparsers.add_parser('climb', help='Run novelty hill climber')
+    climb_parser.add_argument('-w', '--width', type=int, default=200)
+    climb_parser.add_argument('-ht', '--height', type=int, default=200)
+    climb_parser.add_argument('-c', '--config', type=str, default='config')
+    climb_parser.set_defaults(func=run_climbing)
+   
+    animate_parser = subparsers.add_parser('animate', help='Run terrain animation')
+    animate_parser.add_argument('-w', '--width', type=int, default=200)
+    animate_parser.add_argument('-ht', '--height', type=int, default=200)
+    animate_parser.add_argument('-f', '--fps', type=float, default=30)
+    animate_parser.add_argument('-s', '--smooth', type=float, default=0.08)
+    animate_parser.add_argument('-ss', '--scale-start', type=int, default=120)
+    animate_parser.add_argument('-se', '--scale-end', type=int, default=80)
+    animate_parser.add_argument('-b', '--base', type=float, default=42)
+    animate_parser.set_defaults(func=run_animation)
 
-   animate_parser = subparsers.add_parser('animate', help='Run terrain animation')
-   animate_parser.add_argument('-w', '--width', type=int, default=200)
-   animate_parser.add_argument('-ht', '--height', type=int, default=200)
-   animate_parser.add_argument('-f', '--fps', type=float, default=30)
-   animate_parser.add_argument('-s', '--smooth', type=float, default=0.08)
-   animate_parser.add_argument('-ss', '--scale-start', type=int, default=120)
-   animate_parser.add_argument('-se', '--scale-end', type=int, default=80)
-   animate_parser.set_defaults(func=run_animation)
-
-   return parser.parse_args()
+    mcc_parser = subparsers.add_parser("mcc", help="Run MCC using pre-saved novelty population")
+    mcc_parser.add_argument("-q", "--queue", type=int, help="Size of the population queue at its max", default=250,)
+    mcc_parser.add_argument("-l", "--limit", type=int, help="Resource limits to enforce on terrains", default=5,)
+    mcc_parser.add_argument("-b", "--batch", type=int, help="Number of agents to evaluate per batch", default=40,)
+    mcc_parser.add_argument("-e", "--epoch", type=int, help="Length of time to give each epoch", default=8,)
+    mcc_parser.add_argument("-p", "--population", type=str, help="Path to the bootstrapped population", required=True,)
+   
+    return parser.parse_args()
 
 
 def main():
