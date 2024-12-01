@@ -344,16 +344,22 @@ class Terrain(Environment):
         assert self._height and self._width
         terrain = np.zeros((self._height, self._width))
 
+        print(f"{self._scale=} {self._octaves=} {self._persistence=} {self._lacunarity=} {self._width=} {self._height=} {self._base=}")
         for y in range(self._height):
             for x in range(self._width):
-                terrain[y][x] = noise.snoise2(x / self._scale,
-                                              y / self._scale,
-                                              octaves=self._octaves,
-                                              persistence=self._persistence,
-                                              lacunarity=self._lacunarity,
-                                              repeatx=self._width,
-                                              repeaty=self._height,
-                                              base=self._base)
+                try:
+                    terrain[y][x] = noise.snoise2(x / self._scale,
+                                                  y / self._scale,
+                                                  octaves=self._octaves,
+                                                  persistence=self._persistence,
+                                                  lacunarity=self._lacunarity,
+                                                  repeatx=self._width,
+                                                  repeaty=self._height,
+                                                  base=self._base)
+                except TypeError as error:
+                    print(f"WTF: {x=}, {y=}, {self._scale=}")
+                    print(f"{self._octaves=} {self._persistence=} {self._lacunarity=} {self._width=} {self._height=} {self._base=}")
+                    raise error
         terrain_normalized = (terrain + 1.0) / 2.0
         terrain_scaled = terrain_normalized * 255.0
 

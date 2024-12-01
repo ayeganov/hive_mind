@@ -55,7 +55,7 @@ class Checkpointer:
     def start_generation(self, generation: int):
         self.current_generation = generation
 
-    def end_generation(self, mcc_config: MCCConfig, neat_config: Config, population: list[EvolvingEntity]):
+    def end_generation(self, mcc_config: MCCConfig | None, neat_config: Config, population: list[EvolvingEntity]):
         checkpoint_due = False
 
         if self._time_interval_seconds is not None:

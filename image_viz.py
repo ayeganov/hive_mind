@@ -1,4 +1,4 @@
-from argparse import ArgumentParser, Namespace
+from argparse import ArgumentParser, Namespace, FileType
 import copy
 import itertools
 import pathlib
@@ -19,7 +19,7 @@ from hive_mind.agent import Agent
 from hive_mind.exploring.checkpoint import Checkpointer
 from hive_mind.exploring.environment import Environment, HillEnvironment, Peak, SlopedEnvironment, Terrain
 from hive_mind.exploring.gene import TerrainGene
-from hive_mind.exploring.mcc import AgentGenomeEntity, EnvEntity, EvolvingEntity, ResourceTracker
+from hive_mind.exploring.mcc import AgentGenomeEntity, EnvEntity, EvolvingEntity, MCCConfig, MCCEvolution, ResourceTracker
 from hive_mind.exploring.novelty import DomainAdapter, EvaluationResult, NoveltySearch
 from hive_mind.image_agent import ImageAgent
 from hive_mind.exploring.opencv_visualizer import OpenCVHillClimberVisualizer, RenderAgents
@@ -199,7 +199,7 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
 class NoveltyHillClimber:
     """Main class for hill climbing with novelty search"""
 
-    def __init__(self, area: tuple[int, int], epoch_sec: int, config: neat.Config) -> None:
+    def __init__(self, area: tuple[int, int], epoch_sec: int, config: neat.Config, experiment_loc: str,) -> None:
         self._adapter = HillClimbingAdapter(area, epoch_sec, 10)
         self._novelty_search = NoveltySearch(
             k_nearest=10,
@@ -211,7 +211,7 @@ class NoveltyHillClimber:
         self._stats = neat.StatisticsReporter()
         self._population.add_reporter(self._stats)
         self._population.add_reporter(neat.StdOutReporter(True))
-        self._checkpointer = Checkpointer(pathlib.Path("/tmp/mcc_experiments_perlin"))
+        self._checkpointer = Checkpointer(pathlib.Path(experiment_loc))
 
     def start_sim(self) -> DefaultGenome | None:
         """Start the simulation"""
@@ -456,7 +456,7 @@ def run_climbing(args: Namespace) -> None:
        config_path
    )
    epoch_time = 8
-   nov_hill_climber = NoveltyHillClimber((args.width, args.height), epoch_time, neat_config)
+   nov_hill_climber = NoveltyHillClimber((args.width, args.height), epoch_time, neat_config, args.experiment,)
    winner = nov_hill_climber.start_sim()
    print(f"{winner=}")
 
@@ -475,7 +475,12 @@ def run_animation(args: Namespace) -> None:
 
 
 def run_mcc(args: Namespace) -> None:
-    pass
+    print(f"Running MCC algorithm with seed population from {args.population} using NEAT config {args.neat_config}")
+    mcc_config = MCCConfig(args.queue, args.limit, args.batch, args.epoch)
+    bootstrapped = Checkpointer.restore_checkpoint(args.population)
+    mcc = MCCEvolution(mcc_config, bootstrapped.neat_config, bootstrapped.population)
+
+    mcc.run_evolution()
 
 
 def parse_args() -> Namespace:
@@ -483,11 +488,12 @@ def parse_args() -> Namespace:
     subparsers = parser.add_subparsers(dest='command', required=True)
 
     climb_parser = subparsers.add_parser('climb', help='Run novelty hill climber')
-    climb_parser.add_argument('-w', '--width', type=int, default=200)
-    climb_parser.add_argument('-ht', '--height', type=int, default=200)
-    climb_parser.add_argument('-c', '--config', type=str, default='config')
+    climb_parser.add_argument('-e', '--experiment', type=str, required=True,)
+    climb_parser.add_argument('-w', '--width', type=int, default=200,)
+    climb_parser.add_argument('-ht', '--height', type=int, default=200,)
+    climb_parser.add_argument('-c', '--config', type=str, default='config',)
     climb_parser.set_defaults(func=run_climbing)
-   
+
     animate_parser = subparsers.add_parser('animate', help='Run terrain animation')
     animate_parser.add_argument('-w', '--width', type=int, default=200)
     animate_parser.add_argument('-ht', '--height', type=int, default=200)
@@ -503,8 +509,10 @@ def parse_args() -> Namespace:
     mcc_parser.add_argument("-l", "--limit", type=int, help="Resource limits to enforce on terrains", default=5,)
     mcc_parser.add_argument("-b", "--batch", type=int, help="Number of agents to evaluate per batch", default=40,)
     mcc_parser.add_argument("-e", "--epoch", type=int, help="Length of time to give each epoch", default=8,)
-    mcc_parser.add_argument("-p", "--population", type=str, help="Path to the bootstrapped population", required=True,)
-   
+    mcc_parser.add_argument("-p", "--population", type=pathlib.Path, help="Path to the bootstrapped population", required=True,)
+    mcc_parser.add_argument('-nc', '--neat_config', type=str, default='config', help="Path to the NEAT config file", required=True,)
+    mcc_parser.set_defaults(func=run_mcc)
+
     return parser.parse_args()
 
 

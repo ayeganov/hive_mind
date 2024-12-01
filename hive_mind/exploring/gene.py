@@ -50,7 +50,9 @@ class TerrainGene:
             prop = self.__slots__[idx_id_skipped] # type: ignore
             values.append(getattr(gene, prop))
 
-        return TerrainGene(*values)
+        new_id = str(uuid4())
+        result = TerrainGene(new_id, *values)
+        return result
 
     def __hash__(self) -> int:
         return hash(self.id)

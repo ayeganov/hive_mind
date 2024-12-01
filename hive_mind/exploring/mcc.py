@@ -16,6 +16,7 @@ import numpy as np
 from hive_mind.agent import Agent, Entity
 from hive_mind.exploring.environment import Environment, Peak, Terrain
 from hive_mind.exploring.gene import TerrainGene
+from hive_mind.exploring.opencv_visualizer import OpenCVHillClimberVisualizer, RenderAgents
 from hive_mind.image_agent import ImageAgent
 
 
@@ -221,20 +222,18 @@ class MCCEvolution:
     def __init__(self,
                  config: MCCConfig,
                  neat_config: Config,
-                 seed_agents: set[DefaultGenome],
-                 seed_envs: set[TerrainGene]) -> None:
+                 seed_population: list[EvolvingEntity],):
+        random.shuffle(seed_population)
         self._config = config
         self._neat_config = neat_config
         self._viable_population = PopulationQueue(config.pop_queue_size)
-        self._genome_indexer = itertools.count(len(seed_agents))
+        self._genome_indexer = itertools.count(len([a for a in seed_population if isinstance(a, AgentGenomeEntity)]))
         self._generation = 1
 
-        evolving_agents = (AgentGenomeEntity(g, tuple()) for g in seed_agents)
-        evolving_envs = (EnvEntity(g, tuple()) for g in seed_envs)
-
-        self._viable_population.add_batch(itertools.chain(evolving_agents, evolving_envs))
+        self._viable_population.add_batch(seed_population)
 
         self._resource_tracker = ResourceTracker(config.resource_limit)
+        self._visualizer = OpenCVHillClimberVisualizer(window_name="MCC Visualizer")
 
     def run_evolution(self) -> None:
         """
@@ -244,6 +243,7 @@ class MCCEvolution:
             print(f"Starting generation {self._generation}...")
             parents = self._viable_population.get_batch(self._config.batch_size)
             children = self._reproduce(parents)
+            print(f"Created {len(children)} children")
             self._viable_population.add_batch(parents)
 
             # TODO: create pairs of child and env and then run them in parallel
@@ -267,9 +267,11 @@ class MCCEvolution:
                     print("Warning: failed to match a pair of agent-env")
                     continue
 
+                print(f"Evaluating agent {eval_agent.id} with env {eval_env.id}")
                 mc_satisfied = self._evaluate_agent(cast(AgentGenomeEntity, eval_agent), cast(EnvEntity, eval_env))
 
                 if mc_satisfied:
+                    print("Child passed evaluation")
                     self._viable_population.add(child)
                 eval_agent = None
                 eval_env = None
@@ -309,14 +311,14 @@ class MCCEvolution:
 
         while len(children) < num_children:
             parent1, parent2 = random.sample(genomes, 2)
-            parent1_genome = parent1.genome
-            parent2_genome = parent2.genome
+            parent1.genome.fitness = 0
+            parent2.genome.fitness = 0
 
             child_genome = DefaultGenome(key=next(self._genome_indexer))
 
             child_genome.configure_crossover(
-                parent1_genome,
-                parent2_genome,
+                parent1.genome,
+                parent2.genome,
                 config.genome_config,
             )
 
@@ -329,6 +331,7 @@ class MCCEvolution:
 
             children.append(child)
 
+        print(f"Created {len(children)} agents")
         return children
 
     def _reproduce_envs(self, parents: list[EvolvingEntity], num_children: int) -> list[EvolvingEntity]:
@@ -345,6 +348,7 @@ class MCCEvolution:
 
             children.append(child)
 
+        print(f"Created {len(children)} envs")
         return children
 
     def _is_at_peak(self, goal: Peak, agent: Agent) -> tuple[bool, float]:
@@ -364,19 +368,30 @@ class MCCEvolution:
         min_idx = np.unravel_index(np.argmin(env.get_data("float32")), env.get_data().shape)
         y_min, x_min, *_ = min_idx
         agent.location = {"x": int(x_min), "y": int(y_min)}
+        self._visualizer.set_environment(env)
+
+        render_ctx = RenderAgents(agents=[agent], peaks=env.peaks)
 
         goal = env.peaks[0]
         start = time.time()
         delta = 0
         round_is_over = False
-        peak_reached = False
+        minimum_constraint_satisfied = False
         while delta < self._config.epoch_time and not round_is_over:
+            render_ctx.dist = float("inf")
             agent.observe(env.get_data())
             agent.process()
 
-            if not peak_reached:
-                peak_reached, dist = self._is_at_peak(goal, agent)
+            peak_reached, dist = self._is_at_peak(goal, agent)
+            if peak_reached and not minimum_constraint_satisfied:
+                minimum_constraint_satisfied = True
+                self._resource_tracker.record_usage(env.id)
 
+            if dist < render_ctx.dist:
+                render_ctx.closest_id = agent.id
+                render_ctx.dist = dist
+
+            self._visualizer.render(render_ctx)
             delta = time.time() - start
 
-        return peak_reached
+        return minimum_constraint_satisfied
