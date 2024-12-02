@@ -277,6 +277,13 @@ class SlopedEnvironment(Environment):
         self.generate_surface()
 
 
+def near_edge(peak: Peak, width: int, height: int, threshold_radius: float = 20) -> bool:
+    return (peak.x < threshold_radius or  # Left edge
+            peak.x > width - threshold_radius or  # Right edge
+            peak.y < threshold_radius or  # Top edge
+            peak.y > height - threshold_radius)  # Bottom edge
+
+
 class Terrain(Environment):
     def __init__(self,
                  width: int | None = None,
@@ -298,9 +305,17 @@ class Terrain(Environment):
         self._octaves: int = 1
         self._persistence = 0.1
         self._lacunarity = 0.5
-        if None not in (width, height):
-            self._terrain_data = self._generate_perlin_noise()
-            self._peaks = self._find_peaks()
+        if width is not None and height is not None:
+            good_peaks = False
+            while not good_peaks:
+                self._terrain_data = self._generate_perlin_noise()
+                self._peaks = self._find_peaks()
+                top_peak = self._peaks[0]
+                if near_edge(top_peak, width, height, 30):
+                    print("Generated bad terrain, retrying...")
+                    self._base = self._base + 1
+                else:
+                    good_peaks = True
         else:
             self._terrain_data = np.array(())
             self._peaks = []

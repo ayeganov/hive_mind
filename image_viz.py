@@ -145,34 +145,40 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
                     agent.process()
 
                     if tracker.is_at_limit():
-                        continue
+                        print("Skipping already solved environment")
+                        round_is_over = True
+                        break
 
-                    has_reached_peak, dist = self._is_at_peak(goal, agent)
+                    _, dist = self._is_at_peak(goal, agent)
                     if dist < render_ctx.dist:
                         render_ctx.closest_id = agent.id
                         render_ctx.dist = dist
 
-                    if has_reached_peak:
-                        if agent.id not in self._seed_agent_ids:
-                            self._seed_agents.add(copy.deepcopy(genome))
-                            self._seed_agent_ids.add(agent.id)
-
-                            for gene in self._env_genes:
-                                if gene.id == env.id:
-                                    self._seed_landscapes.add(gene)
-                                    break
-
-                            print(f"Agent {agent.id} has been added to seeds")
-                            print(f"Landscape added to seeds")
-
-                            tracker.record_usage(agent.id)
-                            if tracker.is_at_limit():
-                                print(f"The landscape has been solved 5 times, moving on to the next one")
-                                round_is_over = True
-                                break
-
                 visualizer.render(render_ctx)
                 delta = time.time() - start
+
+            for agent, genome in agents.items():
+                has_reached_peak, dist = self._is_at_peak(goal, agent)
+                if has_reached_peak and agent.id not in self._seed_agent_ids:
+                    # Capture the agent since it is within the radius at epoch end
+                    self._seed_agents.add(copy.deepcopy(genome))
+                    self._seed_agent_ids.add(agent.id)
+
+                    # Add the corresponding landscape gene
+                    for gene in self._env_genes:
+                        if gene.id == env.id:
+                            self._seed_landscapes.add(gene)
+                            break
+
+                    print(f"Agent {agent.id} is within the peak at epoch end and has been added to seeds")
+                    print(f"Landscape added to seeds")
+
+                    # Record usage and check limits
+                    tracker.record_usage(agent.id)
+                    if tracker.is_at_limit():
+                        print(f"The landscape has been solved enough times, moving on to the next one")
+                        round_is_over = True
+                        break
 
             for agent in agents:
                 position = np.array([agent.location['x'], agent.location['y']], dtype=np.float32) / 255.

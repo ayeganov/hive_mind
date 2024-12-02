@@ -77,6 +77,9 @@ class ResourceTracker:
     def clear(self):
         self._usage.clear()
 
+    def solved_count(self, ent_id: str) -> int:
+        return sum(self._usage.values())
+
 
 class PopulationQueue:
     """Manages a queue of entities with fixed capacity"""
@@ -256,6 +259,8 @@ class MCCEvolution:
                     avaialble_envs = self._viable_population.get_sub_population("env")
                     for env in avaialble_envs:
                         if self._resource_tracker.can_use(env.id):
+                            solved = self._resource_tracker.solved_count(env.id)
+                            print(f"Picking env {env.id} that has been solved {solved} times")
                             eval_env = env
                             break
                 else: # child is environment
@@ -376,16 +381,12 @@ class MCCEvolution:
         start = time.time()
         delta = 0
         round_is_over = False
-        minimum_constraint_satisfied = False
         while delta < self._config.epoch_time and not round_is_over:
             render_ctx.dist = float("inf")
             agent.observe(env.get_data())
             agent.process()
 
-            peak_reached, dist = self._is_at_peak(goal, agent)
-            if peak_reached and not minimum_constraint_satisfied:
-                minimum_constraint_satisfied = True
-                self._resource_tracker.record_usage(env.id)
+            _, dist = self._is_at_peak(goal, agent)
 
             if dist < render_ctx.dist:
                 render_ctx.closest_id = agent.id
@@ -393,5 +394,14 @@ class MCCEvolution:
 
             self._visualizer.render(render_ctx)
             delta = time.time() - start
+
+        mcc_height = env.peaks[0].height * 0.7
+        agent_x, agent_y = int(agent.location['x']), int(agent.location['y'])
+        agent_elevation = env.get_data()[agent_y][agent_x]
+
+        minimum_constraint_satisfied = agent_elevation >= mcc_height
+        if minimum_constraint_satisfied:
+            print("Environemt usage increased")
+            self._resource_tracker.record_usage(env.id)
 
         return minimum_constraint_satisfied

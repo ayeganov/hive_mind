@@ -10,7 +10,7 @@ reset_on_extinction   = 0
 
 [DefaultGenome]
 num_inputs              = 9
-num_hidden              = 2
+num_hidden              = 0
 num_outputs             = 3
 initial_connection      = full_direct
 feed_forward            = True
@@ -41,8 +41,8 @@ response_mutate_power   = 0.01
 response_max_value      = 3.0
 response_min_value      = -3.0
 
-weight_max_value        = 2
-weight_min_value        = -2
+weight_max_value        = 5
+weight_min_value        = -5
 weight_init_mean        = 0.0
 weight_init_stdev       = 1.0
 weight_mutate_rate      = 0.8

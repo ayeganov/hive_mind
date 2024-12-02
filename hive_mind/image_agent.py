@@ -140,6 +140,8 @@ class ImageAgent(Agent):
         # 4. Process the sampled values
         sampled_array = np.array(sampled_values, dtype=np.float32)
         normalized = sampled_array / 255.0  # Normalize to [0, 1]
+        center_value = image[int(y)][int(x)] / 255.0
+        normalized = normalized - center_value
         tensor_input = torch.tensor(normalized, dtype=torch.float32)
 
         if self._add_noise:
