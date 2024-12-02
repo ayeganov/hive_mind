@@ -8,6 +8,8 @@ from numpy.typing import NDArray
 import neat
 import numpy as np
 
+from hive_mind.exploring.mcc import EvolvingEntity
+
 
 GenAgent = TypeVar('GenAgent')
 GenContext = TypeVar('GenContext')
@@ -18,7 +20,7 @@ class EvaluationResult[GenAgent]:
     """Container for evaluation results"""
     agent: GenAgent
     behavior: NDArray[np.float32]
-    additional_data: dict[str, Any]
+    additional_data: dict[str, Any] | None = None
 
 
 class NoveltySearch:
@@ -87,3 +89,8 @@ class DomainAdapter[GenAgent, GenContext](ABC):
     @abstractmethod
     def is_search_completed(self) -> bool:
         """Have the search conditions been met"""
+
+    @property
+    @abstractmethod
+    def collected_population(self) -> list[EvolvingEntity]:
+        """Return the population that was collected during the novelty search"""

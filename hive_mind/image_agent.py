@@ -36,48 +36,113 @@ class ImageAgent(Agent):
         self._network = neat.nn.FeedForwardNetwork.create(genome, config)
 
         self._location = {'x': 0.0, 'y': 0.0}
-        self._view_radius = int(config.genome_config.num_inputs**0.5)
+        self._view_radius = 15 #int(config.genome_config.num_inputs**0.5)
         self._add_noise = False
+
+#    def observe(self, input_data: np.ndarray) -> None:
+#        """
+#        Observe a rectangular portion of the image based on current location, body direction, gaze direction, and focus.
+#
+#        :param input_data: The full image as a NumPy array.
+#        """
+#        image = input_data
+#        height, width = image.shape[:2]
+#        x, y = self._location['x'], self._location['y']
+#        r = self._view_radius
+#
+#        final_direction = self._body_direction + self._gaze_direction
+#        magnitude = np.linalg.norm(final_direction)
+#        if magnitude != 0:
+#            final_direction = final_direction / magnitude
+#
+#        rotation_angle = np.degrees(np.arctan2(-final_direction[1], final_direction[0]))
+#
+#        area = r * r
+#        view_width = int(np.sqrt(2 * area * self._focus))
+#        view_width = max(view_width, 2)
+#
+#        view_height = int(np.ceil(area / view_width))
+#        view_height = max(view_height, 2)
+#
+#        M = cv2.getRotationMatrix2D((x, y), -rotation_angle, 1.0)
+#
+#        rotated_image = cv2.warpAffine(image, M, (width, height))
+#
+#        cropped_image = cv2.getRectSubPix(rotated_image, (view_width, view_height), (x, y))
+#
+#        if len(cropped_image.shape) == 3 and cropped_image.shape[2] == 3:
+#            cropped_image = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
+#
+#        normalized_image = cropped_image / 255.0  # Normalize pixel values to [0, 1]
+#
+#        tensor_input = torch.tensor(normalized_image, dtype=torch.float32).flatten()[:area]
+#        if len(tensor_input) != area:
+#            print(f"{view_width=} {view_height=}")
+#
+#        if self._add_noise:
+#            confusion = torch.randn_like(tensor_input)
+#            tensor_input += confusion
+#
+#        self._internal_state['last_observation'] = tensor_input
 
     def observe(self, input_data: np.ndarray) -> None:
         """
-        Observe a rectangular portion of the image based on current location, body direction, gaze direction, and focus.
+        Observe 9 points arranged in a semicircle in front of the agent with a custom radius.
 
         :param input_data: The full image as a NumPy array.
         """
         image = input_data
         height, width = image.shape[:2]
         x, y = self._location['x'], self._location['y']
-        r = self._view_radius
+        radius = self._view_radius  # Custom radius for sensing
 
+        # 1. Determine the agent's forward direction
         final_direction = self._body_direction + self._gaze_direction
         magnitude = np.linalg.norm(final_direction)
         if magnitude != 0:
             final_direction = final_direction / magnitude
+        else:
+            # Default forward direction if both directions are zero
+            final_direction = np.array([1.0, 0.0])
 
-        rotation_angle = np.degrees(np.arctan2(-final_direction[1], final_direction[0]))
+        # Calculate the angle of the forward direction in radians
+        forward_angle_rad = np.arctan2(-final_direction[1], final_direction[0])
 
-        area = r * r
-        view_width = int(np.sqrt(2 * area * self._focus))
-        view_width = max(view_width, 2)
+        # 2. Calculate positions of 9 points in a semicircle
+        num_points = 9
+        angles = np.linspace(-np.pi / 2, np.pi / 2, num_points)  # From -90 to +90 degrees
 
-        view_height = int(np.ceil(area / view_width))
-        view_height = max(view_height, 2)
+        # Calculate the (dx, dy) offsets for each point
+        dx = radius * np.cos(forward_angle_rad + angles)
+        dy = -radius * np.sin(forward_angle_rad + angles)  # Negative because image y-axis is top to bottom
 
-        M = cv2.getRotationMatrix2D((x, y), -rotation_angle, 1.0)
+        # Calculate absolute positions
+        px = x + dx
+        py = y + dy
 
-        rotated_image = cv2.warpAffine(image, M, (width, height))
+        # Clamp positions to image boundaries
+        px = np.clip(px, 0, width - 1)
+        py = np.clip(py, 0, height - 1)
 
-        cropped_image = cv2.getRectSubPix(rotated_image, (view_width, view_height), (x, y))
+        # 3. Sample the image at the 9 points
+        sampled_values = []
+        if len(image.shape) == 3 and image.shape[2] == 3:
+            # Convert to grayscale once if the image is colored
+            gray_image = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+        else:
+            gray_image = image
 
-        if len(cropped_image.shape) == 3 and cropped_image.shape[2] == 3:
-            cropped_image = cv2.cvtColor(cropped_image, cv2.COLOR_BGR2GRAY)
+        for coord_x, coord_y in zip(px, py):
+            # Use bilinear interpolation for subpixel accuracy
+            pixel_value = cv2.getRectSubPix(gray_image, (1, 1), (coord_x, coord_y))[0, 0]
+            sampled_values.append(pixel_value)
 
-        normalized_image = cropped_image / 255.0  # Normalize pixel values to [0, 1]
-
-        tensor_input = torch.tensor(normalized_image, dtype=torch.float32).flatten()[:area]
-        if len(tensor_input) != area:
-            print(f"{view_width=} {view_height=}")
+        # 4. Process the sampled values
+        sampled_array = np.array(sampled_values, dtype=np.float32)
+        normalized = sampled_array / 255.0  # Normalize to [0, 1]
+        center_value = image[int(y)][int(x)] / 255.0
+        normalized = normalized - center_value
+        tensor_input = torch.tensor(normalized, dtype=torch.float32)
 
         if self._add_noise:
             confusion = torch.randn_like(tensor_input)
@@ -108,8 +173,9 @@ class ImageAgent(Agent):
         if len(output_tensor) < 2:
             raise ValueError("NEAT network must output at least two values for speeds.")
 
-        left_speed = output_tensor[0].item()
-        right_speed = output_tensor[1].item()
+        speed = output_tensor[2].item()
+        left_speed = output_tensor[0].item() * speed
+        right_speed = output_tensor[1].item() * speed
 #        self._gaze_direction = np.array([np.cos(output_tensor[2].item()), np.sin(output_tensor[2].item())])
 #        self._focus = output_tensor[3].item()
 
@@ -191,6 +257,10 @@ class ImageAgent(Agent):
         :return: The agent's unique ID.
         """
         return self._id
+
+    @property
+    def type(self) -> str:
+        return "agent"
 
     @property
     def location(self) -> dict[str, float]:

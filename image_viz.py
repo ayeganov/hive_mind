@@ -1,4 +1,7 @@
+from argparse import ArgumentParser, Namespace, FileType
 import copy
+import itertools
+import pathlib
 import time
 import uuid
 from collections import defaultdict
@@ -10,15 +13,17 @@ from neat.population import Population
 import numpy as np
 import cv2
 import neat
-import pyvista as pv
 from numpy.typing import NDArray
 
 from hive_mind.agent import Agent
-from hive_mind.exploring.environment import Environment, HillEnvironment
-from hive_mind.exploring.mcc import ResourceTracker
+from hive_mind.exploring.checkpoint import Checkpointer
+from hive_mind.exploring.environment import Environment, HillEnvironment, Peak, SlopedEnvironment, Terrain
+from hive_mind.exploring.gene import TerrainGene
+from hive_mind.exploring.mcc import AgentGenomeEntity, EnvEntity, EvolvingEntity, MCCConfig, MCCEvolution, ResourceTracker
 from hive_mind.exploring.novelty import DomainAdapter, EvaluationResult, NoveltySearch
 from hive_mind.image_agent import ImageAgent
 from hive_mind.exploring.opencv_visualizer import OpenCVHillClimberVisualizer, RenderAgents
+from hive_mind.viz import AnimatedHillPlotter
 
 
 class SimpleEnvironment(Environment):
@@ -42,13 +47,13 @@ class SimpleEnvironment(Environment):
             self._image = image_path
 
     @override
-    def get_data(self) -> Any:
+    def get_data(self, dtype: str = "uint8") -> Any:
         """
         Retrieve the current environment image.
 
         :return: The environment image as a NumPy array.
         """
-        return self._image
+        return self._image.astype(dtype)
 
     @override
     def update_data(self, new_data: Any) -> None:
@@ -78,20 +83,29 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
         self._area = area
         self._epoch_sec = epoch_sec
         self._num_landscapes = num_landscapes
-        self._environments = [HillEnvironment(*area) for _ in range(num_landscapes)]
+        self._env_genes = [TerrainGene(id=str(uuid.uuid4()), size=area[0], scale=140, base=np.random.random_integers(5, 105)) for _ in range(num_landscapes)]
+        self._environments = {gene.id: Terrain.from_genes(gene) for gene in self._env_genes}
         self._seed_agents: set[DefaultGenome] = set()
         self._seed_agent_ids: set[str] = set()
-        self._seed_landscapes: set[Environment] = set()
+        self._seed_landscapes: set[TerrainGene] = set()
         self._resource_trackers = [ResourceTracker(5) for _ in range(num_landscapes)]
+
+    @property
+    @override
+    def collected_population(self) -> list[EvolvingEntity]:
+        agent_ents = (AgentGenomeEntity(g, tuple()) for g in self._seed_agents)
+        env_ents = (EnvEntity(g, tuple()) for g in self._seed_landscapes)
+        return list(itertools.chain(agent_ents, env_ents))
 
     def setup_evaluation(self) -> OpenCVHillClimberVisualizer:
         """Setup visualization and environment"""
         visualizer = OpenCVHillClimberVisualizer(window_name="OpenCV Visualizer")
         return visualizer
 
-    def _is_at_peak(self, goal: tuple[int, int], agent: Agent) -> tuple[bool, float]:
+    def _is_at_peak(self, goal: Peak, agent: Agent) -> tuple[bool, float]:
         x_y = np.array((agent.location['x'], agent.location['y']))
-        dist = float(np.sqrt(np.sum((x_y - goal)**2)))
+        goal_xy = np.array((goal.x, goal.y))
+        dist = float(np.sqrt(np.sum((x_y - goal_xy)**2)))
         return (bool(dist <= 20), dist)
 
     def is_search_completed(self) -> bool:
@@ -107,18 +121,19 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
         """Run agent evaluation and return behavior characterization"""
         visualizer = domain_data
 
-        agents = create_agents(genomes, config, self._environments[0])
+        first_env = next(iter(self._environments.values()))
+        agents = create_agents(genomes, config, first_env)
         render_ctx = RenderAgents(agents=agents.keys())
 
         agent_behaviors: dict[Agent, NDArray[np.float32]] = {}
-        for env, tracker in zip(self._environments, self._resource_trackers):
+        for env, tracker in zip(self._environments.values(), self._resource_trackers):
 
-            render_ctx.peaks = env.get_peak_positions()
+            render_ctx.peaks = env.peaks
 
             visualizer.set_environment(env)
-            goal = env.get_peak_positions()[0]
+            goal = env.peaks[0]
 
-            set_agent_locations(agents, goal, env)
+            set_agent_locations(agents, env)
 
             start = time.time()
             delta = 0
@@ -130,30 +145,40 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
                     agent.process()
 
                     if tracker.is_at_limit():
-                        continue
+                        print("Skipping already solved environment")
+                        round_is_over = True
+                        break
 
-                    has_reached_peak, dist = self._is_at_peak(goal, agent)
+                    _, dist = self._is_at_peak(goal, agent)
                     if dist < render_ctx.dist:
                         render_ctx.closest_id = agent.id
                         render_ctx.dist = dist
 
-                    if has_reached_peak:
-                        if agent.id not in self._seed_agent_ids:
-                            self._seed_agents.add(copy.deepcopy(genome))
-                            self._seed_agent_ids.add(agent.id)
-                            self._seed_landscapes.add(env)
-
-                            print(f"Agent {agent.id} has been added to seeds")
-                            print(f"Landscape added to seeds")
-
-                            tracker.record_usage(agent.id)
-                            if tracker.is_at_limit():
-                                print(f"The landscape has been solved 5 times, moving on to the next one")
-                                round_is_over = True
-                                break
-
                 visualizer.render(render_ctx)
                 delta = time.time() - start
+
+            for agent, genome in agents.items():
+                has_reached_peak, dist = self._is_at_peak(goal, agent)
+                if has_reached_peak and agent.id not in self._seed_agent_ids:
+                    # Capture the agent since it is within the radius at epoch end
+                    self._seed_agents.add(copy.deepcopy(genome))
+                    self._seed_agent_ids.add(agent.id)
+
+                    # Add the corresponding landscape gene
+                    for gene in self._env_genes:
+                        if gene.id == env.id:
+                            self._seed_landscapes.add(gene)
+                            break
+
+                    print(f"Agent {agent.id} is within the peak at epoch end and has been added to seeds")
+                    print(f"Landscape added to seeds")
+
+                    # Record usage and check limits
+                    tracker.record_usage(agent.id)
+                    if tracker.is_at_limit():
+                        print(f"The landscape has been solved enough times, moving on to the next one")
+                        round_is_over = True
+                        break
 
             for agent in agents:
                 position = np.array([agent.location['x'], agent.location['y']], dtype=np.float32) / 255.
@@ -165,8 +190,8 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
 
         results = []
         for agent, behavior in agent_behaviors.items():
-            assert len(behavior) == 30, f"WTF: {len(behavior)=}"
-            results.append(EvaluationResult(agent=agent, behavior=behavior, additional_data={}))
+            assert len(behavior) == self._num_landscapes * 3, f"Behavior of invalid size: {len(behavior)=}"
+            results.append(EvaluationResult(agent=agent, behavior=behavior))
 
         return results
 
@@ -180,7 +205,7 @@ class HillClimbingAdapter(DomainAdapter[Agent, OpenCVHillClimberVisualizer]):
 class NoveltyHillClimber:
     """Main class for hill climbing with novelty search"""
 
-    def __init__(self, area: tuple[int, int], epoch_sec: int, config: neat.Config) -> None:
+    def __init__(self, area: tuple[int, int], epoch_sec: int, config: neat.Config, experiment_loc: str,) -> None:
         self._adapter = HillClimbingAdapter(area, epoch_sec, 10)
         self._novelty_search = NoveltySearch(
             k_nearest=10,
@@ -188,14 +213,20 @@ class NoveltyHillClimber:
             min_novelty_score=0.01
         )
         self._population = neat.Population(config)
+        self._neat_config = config
         self._stats = neat.StatisticsReporter()
         self._population.add_reporter(self._stats)
         self._population.add_reporter(neat.StdOutReporter(True))
+        self._checkpointer = Checkpointer(pathlib.Path(experiment_loc))
 
     def start_sim(self) -> DefaultGenome | None:
         """Start the simulation"""
         while not self._adapter.is_search_completed():
+            self._checkpointer.start_generation(self._population.generation)
             self._population.run(self._evaluate, 1)
+            self._checkpointer.end_generation(None, self._neat_config, self._adapter.collected_population)
+
+        self._checkpointer.save_checkpoint(None, self._neat_config, self._adapter.collected_population, self._population.generation)
 
     def _evaluate(self, genomes: list[tuple[int, DefaultGenome]], config: neat.Config) -> None:
         """Evaluation function that bridges domain adapter and novelty search"""
@@ -230,12 +261,12 @@ def create_agents(genomes: list[tuple[int, DefaultGenome]],
 
 
 def set_agent_locations(agents: dict[Agent, DefaultGenome],
-                        goal: tuple[int, int],
                         env: Environment,) -> None:
+    min_idx = np.unravel_index(np.argmin(env.get_data("float32")), env.get_data().shape)
+    y_min, x_min, *_ = min_idx
     for agent in agents:
-        x, y = env.boundaries
-        agent_x = x - goal[0]
-        agent_y = y - goal[1]
+        agent_x = int(x_min)
+        agent_y = int(y_min)
         agent.location = {'x': agent_x, 'y': agent_y}
 
 
@@ -421,47 +452,80 @@ def plot_3d_hill(hill_image: np.ndarray, title: str, peaks: list[tuple[int, int]
     plotter.show()
 
 
+def run_climbing(args: Namespace) -> None:
+   config_path = os.path.abspath(args.config)
+   neat_config = neat.Config(
+       DefaultGenome,
+       neat.DefaultReproduction,
+       neat.DefaultSpeciesSet,
+       neat.DefaultStagnation,
+       config_path
+   )
+   epoch_time = 8
+   nov_hill_climber = NoveltyHillClimber((args.width, args.height), epoch_time, neat_config, args.experiment,)
+   winner = nov_hill_climber.start_sim()
+   print(f"{winner=}")
+
+
+def run_animation(args: Namespace) -> None:
+   plotter = AnimatedHillPlotter(fps=args.fps, smooth_factor=args.smooth)
+   envs: list[np.ndarray] = []
+   titles: list[str] = []
+   peaks: list[list[Peak]] = []
+   for comp in range(args.scale_start, args.scale_end, -1):
+       env = Terrain(args.width, args.height, scale=float(comp), base=args.base)
+       envs.append(env.get_data())
+       peaks.append(env.peaks)
+       titles.append(f"Scale {comp}")
+   plotter.initialize_window(envs, titles, peaks, auto_play=True)
+
+
+def run_mcc(args: Namespace) -> None:
+    print(f"Running MCC algorithm with seed population from {args.population} using NEAT config {args.neat_config}")
+    mcc_config = MCCConfig(args.queue, args.limit, args.batch, args.epoch)
+    bootstrapped = Checkpointer.restore_checkpoint(args.population)
+    mcc = MCCEvolution(mcc_config, bootstrapped.neat_config, bootstrapped.population)
+
+    mcc.run_evolution()
+
+
+def parse_args() -> Namespace:
+    parser = ArgumentParser(description='Hill Climbing and Terrain Animation Tool')
+    subparsers = parser.add_subparsers(dest='command', required=True)
+
+    climb_parser = subparsers.add_parser('climb', help='Run novelty hill climber')
+    climb_parser.add_argument('-e', '--experiment', type=str, required=True,)
+    climb_parser.add_argument('-w', '--width', type=int, default=200,)
+    climb_parser.add_argument('-ht', '--height', type=int, default=200,)
+    climb_parser.add_argument('-c', '--config', type=str, default='config',)
+    climb_parser.set_defaults(func=run_climbing)
+
+    animate_parser = subparsers.add_parser('animate', help='Run terrain animation')
+    animate_parser.add_argument('-w', '--width', type=int, default=200)
+    animate_parser.add_argument('-ht', '--height', type=int, default=200)
+    animate_parser.add_argument('-f', '--fps', type=float, default=30)
+    animate_parser.add_argument('-s', '--smooth', type=float, default=0.08)
+    animate_parser.add_argument('-ss', '--scale-start', type=int, default=120)
+    animate_parser.add_argument('-se', '--scale-end', type=int, default=80)
+    animate_parser.add_argument('-b', '--base', type=float, default=42)
+    animate_parser.set_defaults(func=run_animation)
+
+    mcc_parser = subparsers.add_parser("mcc", help="Run MCC using pre-saved novelty population")
+    mcc_parser.add_argument("-q", "--queue", type=int, help="Size of the population queue at its max", default=250,)
+    mcc_parser.add_argument("-l", "--limit", type=int, help="Resource limits to enforce on terrains", default=5,)
+    mcc_parser.add_argument("-b", "--batch", type=int, help="Number of agents to evaluate per batch", default=40,)
+    mcc_parser.add_argument("-e", "--epoch", type=int, help="Length of time to give each epoch", default=8,)
+    mcc_parser.add_argument("-p", "--population", type=pathlib.Path, help="Path to the bootstrapped population", required=True,)
+    mcc_parser.add_argument('-nc', '--neat_config', type=str, default='config', help="Path to the NEAT config file", required=True,)
+    mcc_parser.set_defaults(func=run_mcc)
+
+    return parser.parse_args()
+
+
 def main():
 
-    width, height = 200, 200
-    config_path = os.path.abspath("config")  # Replace with your NEAT config path
-    neat_config = neat.Config(
-        DefaultGenome,
-        neat.DefaultReproduction,
-        neat.DefaultSpeciesSet,
-        neat.DefaultStagnation,
-        config_path
-    )
-    nov_hill_climber = NoveltyHillClimber((width, height), 8, neat_config)
-    winner = nov_hill_climber.start_sim()
-
-    print(f"{winner=}")
-    return
-
-#    hill_env = HillEnvironment(width, height)
-#    hill_env.complexity = 4
-#
-#    while True:
-#        hill_env.generate_surface()
-#        peaks = hill_env.get_peak_positions()
-#        hill_image = hill_env.get_data()
-#
-#        plot_3d_hill(hill_image, f'3D Visualization of Hill Image', peaks)
-#
-#    return
-
-    area = 400, 400
-
-    sim = ImageCrawlersSim(area, 8, neat_config)
-    best = sim.start_sim()
-
-
-#    plt.imshow(hill_image, cmap='viridis')
-#    plt.colorbar()
-#    plt.title('Hill Image')
-#    plt.show()
-
-#    print('\nBest genome:\n{!s}'.format(best))
+    args = parse_args()
+    args.func(args)
 
 
 if __name__ == "__main__":
