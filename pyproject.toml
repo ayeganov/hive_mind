@@ -16,6 +16,7 @@ pyvista = "^0.44.1"
 scipy = "^1.14.1"
 noise = "^1.2.2"
 panda3d = "^1.10.15"
+pytest = "^8.3.4"
 
 [build-system]
 requires = ["poetry-core"]
