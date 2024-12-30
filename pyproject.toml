@@ -10,7 +10,6 @@ python = "^3.12"
 torch = "^2.4.1"
 neat-python = {git = "https://github.com/CodeReclaimers/neat-python.git"}
 opencv-python = "^4.10.0.84"
-
 matplotlib = "^3.9.2"
 pyvista = "^0.44.1"
 scipy = "^1.14.1"
